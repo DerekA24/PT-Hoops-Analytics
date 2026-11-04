@@ -1,0 +1,7 @@
+SHA256 source integrity manifest
+Generated November 4 2026
+
+458d6bf5e634efeffbcace9caf84ca7ea321b806feb25ce7ad139b4e7dcc3fa0  01_STUDENTS/frontend/index.html
+190e8046416d105279705a695f795d111992b43dee484d315f2776ee520da730  01_STUDENTS/supabase/functions/pt-hub/index.ts
+d0411da1ee674a8c68350d6fcc38a89565e19aa35000c38cc926e66bd17c36c0  01_STUDENTS/Student_Developer_Guide.docx
+67673b624c63ebbd9e43ea2467c76325bb2d50172c5c48cb95eadb1ce156fbc2  02_SCHOOL_ADMIN_ONLY/Confidential_Administrator_Guide.pdf

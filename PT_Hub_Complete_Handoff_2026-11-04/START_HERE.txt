@@ -1,0 +1,14 @@
+PT BASKETBALL ANALYTICS HUB - COMPLETE HANDOFF KIT
+Created November 4, 2026
+
+OPEN THESE FOLDERS:
+01_STUDENTS: student-safe developer guide, frontend source, Edge Function source, database structure, README.
+02_SCHOOL_ADMIN_ONLY: confidential ownership and credential rotation guide. Faculty only.
+
+Public site: https://ptbasketballhub.netlify.app/
+Netlify project: https://app.netlify.com/projects/ptbasketballhub
+Supabase project: https://supabase.com/dashboard/project/wlgicbxuwzokvwpjkaus
+
+STATUS: Code and documentation packaged. Account ownership transfer, database export, credential rotation, and user information removal are NOT performed by this ZIP. School owner must complete the confidential checklist. There are live player records; DO NOT run destructive SQL or assume a clean database.
+
+SOURCE VERIFICATION: Frontend based on latest local deployment ZIP, not independently verified against hosted Netlify bytes. Edge Function source was fetched from the connected Supabase project (v5). Source files should be committed to school-controlled Git only after they are reviewed for hardcoded credentials and identifiers.
