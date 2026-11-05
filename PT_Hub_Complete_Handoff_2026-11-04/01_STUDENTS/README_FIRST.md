@@ -9,7 +9,7 @@ Prepared November 4, 2026. Read before editing.
 5. Test with fictional users and shots in staging. Never overwrite production shots or student roster data to test a change.
 
 ## Live architecture
-Browser -> Netlify `https://ptbasketballhub.netlify.app` -> Supabase Edge Function `https://wlgicbxuwzokvwpjkaus.supabase.co/functions/v1/pt-hub` -> PostgreSQL.
+Browser -> Netlify/Vercel frontend -> Supabase Edge Function `https://jbznaeunhtqgagnqweqw.supabase.co/functions/v1/pt-hub` -> PostgreSQL.
 The active frontend is in `frontend/`, with eight HTML pages and shared CSS and JavaScript in `frontend/assets/`. `index.html` opens Enter Practice Data. Roster, schedule, and backup tools live inside Coach Review. Practice Analytics has been removed. `pt-hub` is a Deno TypeScript Edge Function. The web code uses a publishable Supabase key for coach sign-in; the service role secret stays server-side in Supabase only.
 
 ## Local development

@@ -1,13 +1,19 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.0";
 const url=Deno.env.get("SUPABASE_URL")!,secret=Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const db=createClient(url,secret,{auth:{persistSession:false}});
-const origin="https://ptbasketballhub.netlify.app";
+const allowedOrigin=(origin:string|null)=>{
+ if(origin==="https://ptbasketballhub.netlify.app")return origin;
+ if(origin?.startsWith("https://")&&origin.endsWith(".vercel.app"))return origin;
+ if(origin==="http://localhost:8000"||origin==="http://127.0.0.1:8000")return origin;
+ return null;
+};
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-function reply(v:unknown,s=200){return new Response(JSON.stringify(v),{status:s,headers:{"Content-Type":"application/json","Access-Control-Allow-Origin":origin,"Access-Control-Allow-Methods":"GET,POST,PATCH,DELETE,OPTIONS","Access-Control-Allow-Headers":"content-type,authorization,apikey,x-client-info","Cache-Control":"no-store"}})}
+function reply(v:unknown,s=200){return new Response(JSON.stringify(v),{status:s,headers:{"Content-Type":"application/json","Access-Control-Allow-Origin":"*","Access-Control-Allow-Methods":"GET,POST,PATCH,DELETE,OPTIONS","Access-Control-Allow-Headers":"content-type,authorization,apikey,x-client-info","Cache-Control":"no-store"}})}
 const fail=(m:string,c=400)=>reply({error:m},c);
 Deno.serve(async req=>{
  if(req.method==="OPTIONS")return reply({},200);
- if(req.headers.get("origin")!==origin)return fail("Origin not allowed",403);
+ const origin=allowedOrigin(req.headers.get("origin"));
+ if(!origin)return fail("Origin not allowed",403);
  try{
  const ip=req.headers.get("x-forwarded-for")?.split(",")[0]?.trim()||"unknown";
  const hash=Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode("pt-hub-v1:"+ip)))).slice(0,16).map(x=>x.toString(16).padStart(2,"0")).join("");
