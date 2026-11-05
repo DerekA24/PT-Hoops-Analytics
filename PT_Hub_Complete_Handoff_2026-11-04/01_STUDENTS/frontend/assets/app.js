@@ -33,9 +33,14 @@ function dateRangeLabel(prefix){
  if(start&&end)return start>end?'Invalid date range':start+' to '+end;
  return start?'From '+start:end?'Through '+end:'All dates';
 }
+function isNewLiveEvent(game,event){
+ if(event.source!=='live-game')return false;
+ const imported=Date.parse(game.statsImport?.importedAt||'1970-01-01T00:00:00Z');
+ return Number.isFinite(Date.parse(event.recordedAt))&&Date.parse(event.recordedAt)>imported;
+}
 function render(){
  if($('profiles')){refreshOptions('profilePlayer');if($('profilePlayer')&&!$('profilePlayer').value&&state.players.length)$('profilePlayer').value=state.players[0].id;renderProfile()}
- renderRoster();renderSchedule();renderLeaderboards();renderCoachReview();renderBoardManager();if(window.renderOtherLeaderboards)window.renderOtherLeaderboards();if(window.renderSchedulePage)window.renderSchedulePage();
+ renderRoster();renderSchedule();renderLeaderboards();renderCoachReview();renderBoardManager();if(window.renderOtherLeaderboards)window.renderOtherLeaderboards();if(window.renderSchedulePage)window.renderSchedulePage();if(window.renderLiveGame)window.renderLiveGame();
  if($('athlete')){const current=athleteId;const options=$('athletePlayer');if(options.options.length!==state.players.length+1)athleteRefreshRoster();else{options.value=current;updateAthleteDisplay()}}
 }
 function renderRoster(){if(!$('roster'))return;$('rosterRows').innerHTML=state.players.map(p=>`<tr><td>${esc(p.number)}</td><td>${esc(p.name)}</td><td>${esc(p.grade)}</td><td>${esc(p.position)}</td><td><button data-edit-player="${esc(p.id)}">Edit</button> <button data-remove-player="${esc(p.id)}">Delete</button></td></tr>`).join('')}

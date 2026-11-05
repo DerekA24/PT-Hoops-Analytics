@@ -1,0 +1,102 @@
+(()=>{
+ 'use strict';
+ if(!document.getElementById('liveGamePage'))return;
+ const actions=[
+  ['TWO_M','2pt Make'],['TWO_X','2pt Miss'],['THREE_M','3pt Make'],['THREE_X','3pt Miss'],['FT_M','Free Throw Make'],['FT_X','Free Throw Miss'],['OREB','ORB'],['DREB','DRB'],['STL','STL'],['AST','AST'],['TO','TO'],['BLK','BLK'],['FOUL','Foul'],['FAST_TWO','Fast Break 2']
+ ];
+ const selectionKey='pt-live-current-game-v1';let selection=localStorage.getItem(selectionKey)||'',point={x:250,y:300},busy=false;
+ const points=event=>({TWO_M:2,THREE_M:3,FT_M:1})[event.type]||0;
+ const normalize=value=>String(value||'').toLowerCase().replace(/[^a-z0-9]/g,'');
+ function entries(){
+  const used=new Set(),list=state.schedule.map(schedule=>{
+   const game=state.games.find(g=>!used.has(g.id)&&(g.scheduleId===schedule.id||g.id===schedule.id||g.date===schedule.date&&normalize(g.opponent)===normalize(schedule.opponent)));
+   if(game)used.add(game.id);return {key:'s:'+schedule.id,schedule,game};
+  });
+  for(const game of state.games)if(!used.has(game.id))list.push({key:'g:'+game.id,game,schedule:null});
+  return list.sort((a,b)=>String((a.schedule||a.game).date||'').localeCompare(String((b.schedule||b.game).date||'')));
+ }
+ const selectedEntry=()=>entries().find(e=>e.key===selection);
+ function ensureGame(){
+  const entry=selectedEntry();if(!entry)return null;
+  if(entry.game)return entry.game;
+  const item=entry.schedule,game={id:uid(),scheduleId:item.id,date:item.date,opponent:item.opponent,time:item.time||'',location:item.location||'Home',hudlUrl:item.hudlUrl||'',events:[],played:false};state.games.push(game);return game;
+ }
+ function roster(game,team){return team==='pt'?state.players:Array.isArray(game?.opponentPlayers)?game.opponentPlayers:[]}
+ function slots(game,team){const values=game?.liveLineups?.[team]||[];return Array.from({length:5},(_,i)=>values[i]||'')}
+ function activePlayer(game){
+  const active=game?.liveActive;if(!active||!['pt','opponent'].includes(active.team)||!Number.isInteger(active.slot)||active.slot<0||active.slot>4)return null;
+  if(slots(game,active.team)[active.slot]!==active.playerId)return null;
+  const player=roster(game,active.team).find(p=>p.id===active.playerId);return player?{...active,player}:null;
+ }
+ const playerLabel=player=>`${player.number!==undefined&&player.number!==''?'#'+player.number+' ':''}${player.name}`;
+ function score(game,team){
+  const value=team==='pt'?game?.teamScore:game?.opponentScore??game?.oppScore;
+  if(value!==undefined&&value!==null&&Number.isFinite(Number(value)))return Number(value);
+  return (game?.events||[]).filter(e=>(e.team==='opponent'?'opponent':'pt')===team).reduce((n,e)=>n+points(e),0);
+ }
+ function updateDot(){for(const id of ['liveCourtDot','liveCourtDotHalo']){const dot=$(id);dot.setAttribute('cx',String(point.x));dot.setAttribute('cy',String(point.y))}$('liveLocationText').textContent=`${point.x}, ${point.y}`}
+ function render(){
+  const list=entries();if(!list.some(e=>e.key===selection))selection='';
+  $('liveGameSelector').innerHTML='<option value="">Select a game</option>'+list.map(entry=>{const item=entry.schedule||entry.game;return `<option value="${esc(entry.key)}">${esc(item.date||'Date TBD')} · ${item.location==='Away'?'@':'vs'} ${esc(item.opponent||'Opponent TBD')}${item.time?' · '+esc(item.time):''}</option>`}).join('');$('liveGameSelector').value=selection;
+  const entry=selectedEntry(),game=entry?.game,opponent=(entry?.schedule||game)?.opponent||'Opponent',active=activePlayer(game);
+  $('liveOpponentName').textContent=opponent;$('liveAddOpponent').disabled=!entry;
+  $('liveGameScore').textContent=entry?`Park Tudor ${score(game,'pt')} – ${score(game,'opponent')} ${opponent}`:'Park Tudor 0 \u2013 0 Opponent';
+  const saved=game?.liveCourtPoint;if(saved&&Number.isFinite(saved.x)&&Number.isFinite(saved.y))point={x:Math.max(12,Math.min(488,saved.x)),y:Math.max(12,Math.min(458,saved.y))};updateDot();
+  $('livePlayerSlots').innerHTML=Array.from({length:5},(_,slot)=>['pt','opponent'].map(team=>{
+   const lineup=slots(game,team),id=lineup[slot],players=roster(game,team),player=players.find(p=>p.id===id),isActive=active?.team===team&&active.slot===slot;
+   return `<div class="live-slot-dropdown ${isActive?'selected':''}" data-live-slot="${team}:${slot}"><button type="button" class="live-player-activate" data-live-activate="${team}:${slot}" aria-pressed="${!!isActive}" title="${player?esc(playerLabel(player)):'Use the arrow to choose a player'}" ${!entry||!player?'disabled':''}>${player?esc(playerLabel(player)):'Select player'}</button><span class="live-player-arrow" aria-hidden="true">&#9662;</span><select data-live-player="${team}:${slot}" aria-label="Change ${team==='pt'?'Park Tudor':esc(opponent)} player ${slot+1}" aria-describedby="liveSelectedPlayer" ${!entry?'disabled':''}><option value="">Select player</option>${players.map(p=>`<option value="${esc(p.id)}" ${p.id===id?'selected':''} ${lineup.some((value,i)=>i!==slot&&value===p.id)?'disabled':''}>${esc(playerLabel(p))}</option>`).join('')}</select></div>`;
+  }).join('')).join('');
+  $('liveRosterNote').innerHTML=state.players.length?'':'Add Park Tudor players in <a href="coach-review.html#roster">Coach Review → Roster</a>.';
+  $('liveSelectedPlayer').textContent=active?`${active.team==='pt'?'Park Tudor':opponent} · ${playerLabel(active.player)}`:entry?'Choose a player above.':'Select a game and player.';
+  $('liveStatButtons').innerHTML=actions.map(([type,label])=>`<button type="button" data-live-stat="${type}" ${!active||busy?'disabled':''} class="${type.endsWith('_M')||type==='FAST_TWO'?'live-make':type.endsWith('_X')?'live-miss':''}">${label}</button>`).join('');
+  const last=(game?.events||[]).at(-1),lastPlayer=last?roster(game,last.team==='opponent'?'opponent':'pt').find(p=>p.id===last.playerId):null;
+  $('liveUndo').disabled=!last||last.source!=='live-game';
+  $('liveLastEntry').textContent=last?.source==='live-game'?`Saved: ${last.team==='opponent'?opponent:'Park Tudor'} · ${lastPlayer?playerLabel(lastPlayer):last.playerName||'Player'} · ${last.label||last.type} · (${last.x}, ${last.y})`:'';
+ }
+ function setLineup(game,team,slot,id){
+  const lineup=slots(game,team);if(id&&(!roster(game,team).some(p=>p.id===id)||lineup.some((value,i)=>i!==slot&&value===id)))return false;
+  game.liveLineups={pt:slots(game,'pt'),opponent:slots(game,'opponent'),...game.liveLineups};game.liveLineups[team]=lineup;lineup[slot]=id;
+  if(id)game.liveActive={team,slot,playerId:id};else if(game.liveActive?.team===team&&game.liveActive.slot===slot)game.liveActive=null;
+  return true;
+ }
+ $('liveGameSelector').onchange=e=>{selection=e.target.value;localStorage.setItem(selectionKey,selection);point={x:250,y:300};render()};
+ $('livePlayerSlots').onchange=e=>{
+  const select=e.target.closest('[data-live-player]');if(!select)return;const [team,index]=select.dataset.livePlayer.split(':'),game=ensureGame();if(!game)return;
+  if(setLineup(game,team,Number(index),select.value))save();else render();
+ };
+ $('livePlayerSlots').onclick=e=>{
+  const button=e.target.closest('[data-live-activate]');if(!button)return;
+  const [team,index]=button.dataset.liveActivate.split(':'),game=ensureGame();if(!game)return;
+  const slot=Number(index),playerId=slots(game,team)[slot];if(!playerId||!roster(game,team).some(player=>player.id===playerId))return;
+  game.liveActive={team,slot,playerId};save();
+ };
+ function moveDot(x,y){point={x:Math.max(12,Math.min(488,Math.round(x))),y:Math.max(12,Math.min(458,Math.round(y)))};updateDot();if(selectedEntry()){const game=ensureGame();game.liveCourtPoint={...point};save()}}
+ $('liveCourt').onclick=e=>{const court=$('liveCourt'),position=court.createSVGPoint();position.x=e.clientX;position.y=e.clientY;const transformed=position.matrixTransform(court.getScreenCTM().inverse());moveDot(transformed.x,transformed.y)};
+ $('liveCourt').onkeydown=e=>{const steps={ArrowLeft:[-5,0],ArrowRight:[5,0],ArrowUp:[0,-5],ArrowDown:[0,5]};if(!steps[e.key])return;e.preventDefault();moveDot(point.x+steps[e.key][0],point.y+steps[e.key][1])};
+ $('liveStatButtons').onclick=e=>{
+  const button=e.target.closest('[data-live-stat]');if(!button||busy)return;const action=actions.find(([type])=>type===button.dataset.liveStat);if(!action)return;
+  const game=ensureGame(),active=activePlayer(game);if(!game||!active)return;
+  busy=true;
+  try{
+   const type=action[0]==='FAST_TWO'?'TWO_M':action[0],before={pt:score(game,'pt'),opponent:score(game,'opponent')};
+   const event={id:uid(),playerId:active.player.id,playerName:active.player.name,team:active.team,type,label:action[1],x:point.x,y:point.y,fastBreak:action[0]==='FAST_TWO',inPaint:type==='TWO_M'&&point.x>=174&&point.x<=326&&point.y<=202,recordedAt:new Date().toISOString(),source:'live-game',scoreBefore:before};
+   const events=Array.isArray(game.events)?game.events:[];game.events=events;events.push(event);game.played=true;game.final=false;
+   game.teamScore=before.pt+(active.team==='pt'?points(event):0);game.opponentScore=before.opponent+(active.team==='opponent'?points(event):0);game.oppScore=game.opponentScore;
+   save();
+  }finally{busy=false;render()}
+ };
+ $('liveUndo').onclick=()=>{
+  const game=selectedEntry()?.game,last=game?.events?.at(-1);if(!last||last.source!=='live-game')return;
+  game.events.pop();game.teamScore=last.scoreBefore?.pt??Math.max(0,score(game,'pt')-(last.team==='opponent'?0:points(last)));game.opponentScore=last.scoreBefore?.opponent??Math.max(0,score(game,'opponent')-(last.team==='opponent'?points(last):0));game.oppScore=game.opponentScore;save();
+ };
+ $('liveAddOpponent').onclick=()=>{if(!selectedEntry())return;$('liveOpponentForm').reset();$('liveOpponentError').textContent='';$('liveOpponentDialog').showModal()};
+ $('liveCloseOpponent').onclick=()=>$('liveOpponentDialog').close();
+ $('liveOpponentForm').onsubmit=e=>{
+  e.preventDefault();const game=ensureGame();if(!game)return;const name=$('liveOpponentPlayerName').value.trim(),number=$('liveOpponentPlayerNumber').value.trim();if(!name)return;
+  const players=roster(game,'opponent');if(number!==''&&players.some(p=>p.number!==''&&Number(p.number)===Number(number))){$('liveOpponentError').textContent='That jersey number is already on this opponent roster.';return}
+  const player={id:'opponent-'+uid(),name,number};game.opponentPlayers=[...players,player];
+  const lineup=slots(game,'opponent'),empty=lineup.indexOf('');if(empty>=0)setLineup(game,'opponent',empty,player.id);
+  save();$('liveOpponentDialog').close();
+ };
+ window.renderLiveGame=render;window.seedSeasonSchedule?.();render();
+})();

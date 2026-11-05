@@ -70,8 +70,9 @@ function profileRecords({allDates=profileAllDates}={}){
    }
   }
   for(const event of game.events||[]){
+   if(event.team==='opponent')continue;
    if(!/^(TWO|THREE|FT)_[MX]$/.test(event.type))continue;
-   if(didNotPlay.has(event.playerId)||covered.has(event.playerId+'|'+event.type.split('_')[0]))continue;
+   if((didNotPlay.has(event.playerId)||covered.has(event.playerId+'|'+event.type.split('_')[0]))&&!isNewLiveEvent(game,event))continue;
    if(event.shotId&&linked.has(event.shotId))continue;
    add({...event,made:event.type.endsWith('_M'),category:event.type.startsWith('THREE')?'Game 3PT':event.type.startsWith('FT')?'Free Throws':'Game 2PT'},'game',game.date);
   }

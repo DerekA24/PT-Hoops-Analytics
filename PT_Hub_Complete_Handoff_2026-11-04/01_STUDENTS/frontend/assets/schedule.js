@@ -58,7 +58,7 @@
   save();$('scheduleGameDialog').close();$('schedulePageStatus').textContent='Game saved.';
  };
  const fields={
-  gp:['GP','Games Played'],gs:['GS','Games Started','Started','Starter'],minutes:['MIN','Minutes','Minutes Played','MP'],personalFouls:['PF','Personal Fouls','Fouls'],pts:['PTS','Points'],orb:['ORB','OREB','Offensive Rebounds','Off Reb'],drb:['DRB','DREB','Defensive Rebounds','Def Reb'],ast:['AST','Assists'],to:['TO','TOV','Turnovers'],stl:['STL','Steals'],blk:['BLK','Blocks'],pot:['POT','Points Off Turnovers','Points Off Turnover'],pitp:['PITP','Points in the Paint','Points in Paint'],fbp:['FBP','Fast Break Points'],fgMade:['FGM','Field Goals Made'],fgAttempts:['FGA','Field Goals Attempted'],twoMade:['2PM','2FGM','2PTM','2PT Made'],twoAttempts:['2PA','2FGA','2PTA','2PT Attempts'],threeMade:['3PM','3FGM','3PTM','3PT Made'],threeAttempts:['3PA','3FGA','3PTA','3PT Attempts'],ftMade:['FTM','Free Throws Made'],ftAttempts:['FTA','Free Throws Attempted']
+  gp:['GP','Games Played'],gs:['GS','Games Started','Started','Starter'],minutes:['MIN','Minutes','Minutes Played','MP'],personalFouls:['PF','Personal Fouls','Fouls'],pts:['PTS','Points'],orb:['ORB','OREB','Offensive Rebounds','Off Reb'],drb:['DRB','DREB','Defensive Rebounds','Def Reb'],ast:['AST','Assists'],to:['TO','TOV','Turnovers'],stl:['STL','Steals'],blk:['BLK','Blocks'],pitp:['PITP','Points in the Paint','Points in Paint'],fbp:['FBP','Fast Break Points'],fgMade:['FGM','Field Goals Made'],fgAttempts:['FGA','Field Goals Attempted'],twoMade:['2PM','2FGM','2PTM','2PT Made'],twoAttempts:['2PA','2FGA','2PTA','2PT Attempts'],threeMade:['3PM','3FGM','3PTM','3PT Made'],threeAttempts:['3PA','3FGA','3PTA','3PT Attempts'],ftMade:['FTM','Free Throws Made'],ftAttempts:['FTA','Free Throws Attempted']
  };
  const nameHeaders=['Player','Player Name','Name','Athlete','Athlete Name'];
  const jerseyHeaders=['#','##','Jersey','Jersey Number','Jersey #','Number'];
@@ -137,7 +137,7 @@
  document.querySelectorAll('[data-close-dialog]').forEach(button=>button.onclick=()=>$(button.dataset.closeDialog).close());
  $('scheduleGameList').onclick=e=>{const edit=e.target.closest('[data-edit-game]'),upload=e.target.closest('[data-upload-hudl]');if(edit)openEditor(edit.dataset.editGame);if(upload)openUpload(upload.dataset.uploadHudl)};
  $('scheduleTemplate').onclick=()=>downloadText('PT_Schedule_Template.csv',csvData([['Date','Opponent','Location','Start Time','Notes']]));
- $('hudlStatsTemplate').onclick=()=>downloadText('PT_Hudl_Player_Stats_Template.csv',csvData([['Player Name','Jersey Number','GP','GS','MIN','PF','PTS','ORB','DRB','AST','TO','STL','BLK','POT','PITP','FBP','2PM','2PA','3PM','3PA','FTM','FTA']]));
+ $('hudlStatsTemplate').onclick=()=>downloadText('PT_Hudl_Player_Stats_Template.csv',csvData([['Player Name','Jersey Number','GP','GS','MIN','PF','PTS','ORB','DRB','AST','TO','STL','BLK','PITP','FBP','2PM','2PA','3PM','3PA','FTM','FTA']]));
  $('schedulePageUpload').onchange=async e=>{
   const file=e.target.files[0];if(!file)return;
   try{const rows=await getCSV(file,['Date','Opponent','Location','Start Time','Notes']),incoming=[];
@@ -146,10 +146,6 @@
   }catch(error){$('schedulePageStatus').textContent='Schedule import failed: '+error.message}finally{e.target.value=''}
  };
  window.renderSchedulePage=render;
- const seedKey='pt-schedule-2026-27-seed-v1';
- if(!localStorage.getItem(seedKey)){
-  let added=false;for(const item of window.PT_SEASON_SCHEDULE||[])if(!state.schedule.some(s=>s.id===item.id||sameGame(s,item))&&!state.games.some(g=>sameGame(g,item))){state.schedule.push({...item});added=true}
-  if(added)save();localStorage.setItem(seedKey,'done');
- }
+ window.seedSeasonSchedule?.();
  render();
 })();

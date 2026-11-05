@@ -28,7 +28,6 @@ Each game may include a `playerStats` array, with one row per player. A row repr
       "to": 2,
       "stl": 1,
       "blk": 0,
-      "pot": 4,
       "pitp": 10,
       "fbp": 2
     }
@@ -36,6 +35,8 @@ Each game may include a `playerStats` array, with one row per player. A row repr
 }
 ```
 
-Minutes may be numeric or an `MM:SS` string. Alternatively, `game.starters` may contain player IDs. Points off turnovers (POT), points in the paint (PITP), and fast break points (FBP) require explicit totals or scoring events tagged with `pointsOffTurnover`, `inPaint`, and `fastBreak` booleans, respectively. These are subsets of points and are not added to PTS.
+Minutes may be numeric or an `MM:SS` string. Alternatively, `game.starters` may contain player IDs. Points in the paint (PITP) and fast break points (FBP) require explicit totals or scoring events tagged with `inPaint` and `fastBreak` booleans, respectively. These are subsets of points and are not added to PTS.
 
 All boards rank descending totals, show up to 20 athletes, share ranks for ties, and filter by inclusive game-date range. Minimum Games counts games with recorded data for the particular stat; the Games column shows that count. Missing statistics display an empty-state message instead of fabricated zeros. Games Started and Games Played count per-game participation flags, not season totals supplied in one row.
+
+Live Game events include `team` (`pt` or `opponent`), `playerId`, `type`, `x`, `y`, and `recordedAt`. Opponent players live in `game.opponentPlayers`, and opposing events do not enter Park Tudor leaderboards or profiles. Fast Break 2 is a single `TWO_M` event with `fastBreak: true`. New live events recorded after a Hudl import supplement that import; re-uploading a report makes it the new baseline.

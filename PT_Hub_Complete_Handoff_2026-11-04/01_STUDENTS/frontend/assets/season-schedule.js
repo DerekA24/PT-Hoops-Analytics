@@ -17,3 +17,10 @@ window.PT_SEASON_SCHEDULE=[
  {id:'pt-2027-02-20',date:'2027-02-20',time:'19:30',opponent:'Indianapolis Lutheran',location:'Away'},
  {id:'pt-2027-02-26',date:'2027-02-26',time:'19:30',opponent:'Phalen Leadership Academy',location:'Home'}
 ];
+window.seedSeasonSchedule=()=>{
+ const key='pt-schedule-2026-27-seed-v1';if(localStorage.getItem(key))return;
+ const normalize=value=>String(value||'').toLowerCase().replace(/[^a-z0-9]/g,'');let added=false;
+ const matches=(a,b)=>a.id===b.id||a.date===b.date&&normalize(a.opponent)===normalize(b.opponent);
+ for(const item of window.PT_SEASON_SCHEDULE)if(!state.schedule.some(s=>matches(s,item))&&!state.games.some(g=>matches(g,item))){state.schedule.push({...item});added=true}
+ if(added)save();localStorage.setItem(key,'done');
+};

@@ -14,7 +14,6 @@
   {key:'to',label:'Turnovers',description:'Turnovers',aliases:['to','turnovers'],events:['TO']},
   {key:'stl',label:'Steals',description:'Steals',aliases:['stl','steals'],events:['STL']},
   {key:'blk',label:'Blocks',description:'Blocks',aliases:['blk','blocks'],events:['BLK']},
-  {key:'pot',label:'Points Off Turnovers',description:'Points off turnovers',aliases:['pot','pointsOffTurnovers'],flag:'pointsOffTurnover'},
   {key:'pitp',label:'Points in the Paint',description:'Points in the paint',aliases:['pitp','pointsInThePaint'],flag:'inPaint'},
   {key:'fbp',label:'Fast Break Points',description:'Fast break points',aliases:['fbp','fastBreakPoints'],flag:'fastBreak'}
  ];
@@ -33,14 +32,15 @@
  const points=event=>({TWO_M:2,THREE_M:3,FT_M:1})[event.type]||0;
  function gameValues(game){
   const rows=Array.isArray(game.playerStats)?game.playerStats:[];
-  const events=Array.isArray(game.events)?game.events:[];
+  const events=Array.isArray(game.events)?game.events.filter(e=>e.team!=='opponent'):[];
   const ids=new Set([...rows.map(r=>r.playerId),...events.map(e=>e.playerId),...(Array.isArray(game.starters)?game.starters:[])]);
   const result=[];
   for(const id of ids){
    if(!id)continue;
    const row=rows.find(r=>r.playerId===id),playerEvents=events.filter(e=>e.playerId===id);
    const gp=recordedValue(row,stats[0]);
-   if(row?.played===false||gp===0)continue;
+   const recent=playerEvents.filter(event=>isNewLiveEvent(game,event));
+   if((row?.played===false||gp===0)&&!recent.length)continue;
    const values={gp:1};
    const started=recordedValue(row,stats[1]);
    if(started!==null)values.gs=started>0?1:0;
@@ -48,7 +48,13 @@
    else if(Array.isArray(game.starters))values.gs=Number(game.starters.includes(id));
    for(const stat of stats.slice(2)){
     const recorded=recordedValue(row,stat);
-    if(recorded!==null){values[stat.key]=recorded;continue}
+    if(recorded!==null){
+     let additional=0;
+     if(stat.events)additional=recent.filter(e=>stat.events.includes(e.type)).length;
+     else if(stat.key==='pts')additional=recent.reduce((n,e)=>n+points(e),0);
+     else if(stat.flag)additional=recent.reduce((n,e)=>n+(e[stat.flag]===true||e.tags?.includes(stat.key.toUpperCase())?points(e):0),0);
+     values[stat.key]=recorded+additional;continue;
+    }
     if(!playerEvents.length)continue;
     if(stat.events)values[stat.key]=playerEvents.filter(e=>stat.events.includes(e.type)).length;
     else if(stat.key==='pts')values.pts=playerEvents.reduce((n,e)=>n+points(e),0);
@@ -73,7 +79,7 @@
  const format=value=>Number.isInteger(value)?String(value):value.toFixed(1);
  function render(){
   dateRangeValid('other');
-  const games=state.games.filter(g=>$('otherScope').value!=='range'||dateInRange(g.date,'other'));
+  const games=state.games.filter(g=>(g.played||g.final||g.events?.length||g.playerStats?.length)&&($('otherScope').value!=='range'||dateInRange(g.date,'other')));
   const totals=totalsFor(games),minimum=Math.max(1,Math.floor(Number($('otherMinGames').value)||1));
   const selected=$('otherStat').value,athletes=new Set();let recordedStats=0;
   $('otherWall').innerHTML=stats.map(stat=>{
