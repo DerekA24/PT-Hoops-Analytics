@@ -37,12 +37,9 @@ Deno.serve(async req=>{
  const {error}=await db.from("pt_shots").upsert({id:body.id,player_id:body.player_id,drill_id:body.drill_id,made:body.made,practice_date:body.practice_date,entered_by:null,notes:"Public courtside entry"},{onConflict:"id",ignoreDuplicates:true});
  return error?fail("Shot could not be saved",500):reply({ok:true,id:body.id});
  }
- const bearer=req.headers.get("authorization")?.replace(/^Bearer\s+/i,"")||"";
- if(!bearer)return fail("Coach sign in required",401);
- const {data:{user},error:authError}=await db.auth.getUser(bearer);
- if(authError||!user)return fail("Coach session invalid",401);
- const {data:coach}=await db.from("pt_coaches").select("user_id").eq("user_id",user.id).maybeSingle();
- if(!coach)return fail("Coach permission required",403);
+ // The coach access code authorizes roster changes and shooting corrections.
+ const code=req.headers.get("authorization")?.replace(/^Bearer\s+/i,"")||"";
+ if(code!=="232323")return fail("Valid coach access code required",401);
  if(req.method==="POST"&&action==="player"){
  if(!uuid.test(body.id||"")||typeof body.full_name!=="string"||body.full_name.trim().length<2||body.full_name.length>90)return fail("Invalid player");
  const {error}=await db.from("pt_players").upsert({id:body.id,full_name:body.full_name.trim(),jersey_number:body.jersey_number===null?null:Number(body.jersey_number),grade:String(body.grade||"").slice(0,40),position:String(body.position||"").slice(0,40),active:true},{onConflict:"id"});

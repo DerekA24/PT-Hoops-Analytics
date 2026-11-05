@@ -10,7 +10,7 @@ Prepared November 4, 2026. Read before editing.
 
 ## Live architecture
 Browser -> Netlify/Vercel frontend -> Supabase Edge Function `https://jbznaeunhtqgagnqweqw.supabase.co/functions/v1/pt-hub` -> PostgreSQL.
-The active frontend is in `frontend/`, with eight HTML pages and shared CSS and JavaScript in `frontend/assets/`. `index.html` opens Enter Practice Data. Roster, schedule, and backup tools live inside Coach Review. Practice Analytics has been removed. `pt-hub` is a Deno TypeScript Edge Function. The web code uses a publishable Supabase key for coach sign-in; the service role secret stays server-side in Supabase only.
+The active frontend is in `frontend/`, with eight HTML pages and shared CSS and JavaScript in `frontend/assets/`. `index.html` opens Enter Practice Data. Roster, schedule, and backup tools live inside Coach Review. Practice Analytics has been removed. `pt-hub` is a Deno TypeScript Edge Function. Coach access uses code 232323 for both the Coach Review gate and cloud edits; no email/password sign-in is required. The service role secret stays server-side in Supabase only.
 
 ## Local development
 From the repository root, run `python -m http.server 8000 --bind 127.0.0.1 --directory "01_STUDENTS/frontend"`, then open `http://localhost:8000`.
@@ -29,9 +29,9 @@ Frontend: commit and test source in school-owned Git, and publish via the EXISTI
 ## Supabase API actions
 GET `?action=snapshot`: shared players/drills/shots.
 POST `?action=shot`: public shot entry.
-POST `?action=player`: authenticated authorized coach only.
-PATCH `?action=shot`: authenticated authorized coach correction.
-DELETE `?action=shot`: authenticated authorized coach deletion.
+POST `?action=player`: valid coach access code required.
+PATCH `?action=shot`: coach correction with valid access code.
+DELETE `?action=shot`: coach deletion with valid access code.
 
 ## Critical limitations
 * Web visitors can submit shots anonymously; the Origin header is NOT an access-control mechanism. School administration should evaluate student privacy and abuse prevention.
@@ -53,4 +53,4 @@ Other Leaderboards uses saved game events and optional per-game box scores. See 
 
 `live-game.html` provides game selection, a clickable half-court, five player slots for each team, opponent roster creation, and quick-stat entry. Events persist to the selected game with team, player, court coordinates, and timestamp. Fast Break 2 records one made two-pointer tagged as a fast break. Opponent events are kept separate from Park Tudor analytics. Live events, lineups, and opponent rosters are saved locally and included in JSON backups.
 
-Schedule additions, edits, schedule CSV imports, and Hudl uploads prompt for the coach access code before opening the editor or file picker. They share the same verifier as Coach Review. Approval is limited to the current editor/import and cleared when it closes or the page is left. This is the existing local code gate; cloud editing still requires Supabase coach authorization.
+Schedule additions, edits, schedule CSV imports, and Hudl uploads prompt for the coach access code before opening the editor or file picker. They share the same verifier as Coach Review. Approval is limited to the current editor/import and cleared when it closes or the page is left. This is the existing local code gate; cloud edits use the same coach access after unlocking Coach Review. Deploy the updated `pt-hub` Edge Function together with the frontend; older deployed functions still require the previous account sign-in.
