@@ -1,0 +1,7 @@
+[build]
+  publish = "PT_Hub_Complete_Handoff_2026-11-04/01_STUDENTS/frontend"
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
