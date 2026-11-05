@@ -12,7 +12,11 @@ async function digest(code,s){
  if(window.crypto&&crypto.subtle){const raw=await crypto.subtle.digest('SHA-256',bytes);return Array.from(new Uint8Array(raw),x=>x.toString(16).padStart(2,'0')).join('')}
  let h=2166136261;for(const b of bytes)h=Math.imul(h^b,16777619);return 'local-'+(h>>>0).toString(16);
 }
-window.PTCoachAccess={verify:async code=>{const saved=record();return saved?await digest(code,saved.salt)===saved.hash:code===DEFAULT_CODE}};
+window.PTCoachAccess={
+ isUnlocked:()=>unlocked,
+ // Browser-specific code overrides still unlock the same shared coach access.
+ cloudCredential:()=>unlocked?DEFAULT_CODE:null,
+ verify:async code=>{const saved=record();return saved?await digest(code,saved.salt)===saved.hash:code===DEFAULT_CODE}};
 if(!document.getElementById('coachGate'))return;
 function show(modeChoice='unlock'){
  mode=modeChoice;
@@ -32,7 +36,7 @@ function show(modeChoice='unlock'){
  (changing?$('gateCurrent'):$('gateCode')).focus();
 }
 function close(){ $('coachGate').classList.remove('open');$('coachGate').style.display='none';$('coachGate').setAttribute('aria-hidden','true') }
-function displayCoach(){close();$('coachTools').hidden=false;$('coachLocked').hidden=true;if(location.hash)document.getElementById(location.hash.slice(1))?.scrollIntoView();}
+function displayCoach(){window.dispatchEvent(new Event('pt-coach-unlocked'));close();$('coachTools').hidden=false;$('coachLocked').hidden=true;if(location.hash)document.getElementById(location.hash.slice(1))?.scrollIntoView();}
 $('coachUnlock').addEventListener('click',()=>show('unlock'));
 $('gateCancel').addEventListener('click',close);
 $('coachCodeForm').addEventListener('submit',async e=>{

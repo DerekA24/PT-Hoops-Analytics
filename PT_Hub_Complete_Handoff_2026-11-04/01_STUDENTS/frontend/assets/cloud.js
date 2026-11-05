@@ -6,7 +6,7 @@
  const knownPlayers=new Set(state.players.map(p=>p.id));
  const pendingKey='pt_hub_pending_v1';
  let pending=[];try{pending=JSON.parse(localStorage.getItem(pendingKey)||'[]')}catch{}
- let roster=new Map(),drills=new Map(),cloudShots=new Map(),busy=false,coachToken='',coachRefresh='',coachExpiry=0,lastError='';
+ let roster=new Map(),drills=new Map(),cloudShots=new Map(),busy=false,lastError='';
  const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  const status=document.createElement('div');status.id='ptSharedStatus';status.setAttribute('role','status');status.textContent='Connecting shared team data…';
  document.querySelector('nav')?.insertAdjacentElement('afterend',status);
@@ -38,7 +38,7 @@
    for(const s of state.shooting){if(cloudShots.has(s.id)&&validShot(s)&&Number(s.makes)!==Number(cloudShots.get(s.id).made))coachMutation('PATCH',s.id,s.makes===1)}
    shotIds.clear();for(const id of current)shotIds.add(id);remember();
    if(pending.length)flush();
-   if(coachToken)for(const p of state.players){if(!knownPlayers.has(p.id)){knownPlayers.add(p.id);sendPlayer(p)}}
+   if(window.PTCoachAccess?.isUnlocked())for(const p of state.players){if(!knownPlayers.has(p.id)){knownPlayers.add(p.id);sendPlayer(p)}}
  }
  let debounce=null;window.ptCloudQueueSave=()=>{clearTimeout(debounce);debounce=setTimeout(noticeChanges,80)};
  async function flush(){
@@ -101,20 +101,17 @@
    flush();
   }catch(e){label('Shared data unavailable. Local recording continues; cloud sync will retry: '+e.message,true)}
  }
- async function authCall(route,body){const key=cloudKey.value.trim();if(!key.startsWith('sb_publishable_'))throw Error('Enter the Supabase publishable key');const r=await fetch(base+'/auth/v1/'+route,{method:'POST',headers:{'Content-Type':'application/json','apikey':key},body:JSON.stringify(body)});const v=await r.json();if(!r.ok)throw Error(v.msg||v.error_description||v.message||'Authentication failed');return v}
- const review=document.getElementById('coach')||document.getElementById('coachReview')||document.querySelector('[id*=coach]');const coachPanel=document.createElement('div');coachPanel.className='card';coachPanel.id='ptCoachCloud';coachPanel.innerHTML='<h3>Coach cloud permissions</h3><p class="muted">Coach Review uses the existing access code. Sign in here once to authorize edits and roster updates to the shared database.</p><div class="row"><input id="ptCoachKey" type="hidden"><label>Coach email<input id="ptCoachEmail" type="email" autocomplete="username"></label><label>Coach password<input id="ptCoachPass" type="password" autocomplete="current-password"></label><button id="ptCoachConnect" type="button">Authorize coach changes</button></div><p id="ptCoachResult" class="muted">Not authorized for cloud edits</p>';
- review?.insertAdjacentElement('afterbegin',coachPanel);
- const cloudKey=coachPanel.querySelector('#ptCoachKey');cloudKey.value='sb_publishable_pqdUf6JCZIyHjhBgAEcKcg_8HIyNwPF';
- coachPanel.querySelector('#ptCoachConnect').onclick=async()=>{const msg=coachPanel.querySelector('#ptCoachResult');try{
-  const data=await authCall('token?grant_type=password',{email:coachPanel.querySelector('#ptCoachEmail').value,password:coachPanel.querySelector('#ptCoachPass').value});
-  const r=await fetch(base+'/rest/v1/rpc/pt_is_coach',{method:'POST',headers:{apikey:cloudKey.value.trim(),Authorization:'Bearer '+data.access_token,'Content-Type':'application/json'},body:'{}'});
-  if(!r.ok||await r.json()!==true)throw Error('This account does not have coach permissions');
-  coachToken=data.access_token;coachRefresh=data.refresh_token;coachExpiry=Date.now()+data.expires_in*1000;localStorage.setItem('pt_supabase_publishable_key_v1',cloudKey.value.trim());coachPanel.querySelector('#ptCoachPass').value='';msg.textContent='Coach authorized. Roster and shooting corrections can sync.';
+ // Coach Review's access-code gate is the only coach sign-in step.
+ async function token(){
+  const code=window.PTCoachAccess?.cloudCredential();
+  if(!code)throw Error('Unlock Coach Review with the coach access code first');
+  return code;
+ }
+ window.addEventListener('pt-coach-unlocked',async()=>{
   for(const p of state.players)if(!roster.has(p.id)&&uuid.test(p.id))await sendPlayer(p);
   await load();
- }catch(e){msg.textContent='Coach authorization failed: '+e.message}};
- async function token(){if(!coachToken)throw Error('Sign in under Coach Review first');if(Date.now()>coachExpiry-60000){const d=await authCall('token?grant_type=refresh_token',{refresh_token:coachRefresh});coachToken=d.access_token;coachRefresh=d.refresh_token;coachExpiry=Date.now()+d.expires_in*1000}return coachToken}
+ });
  async function sendPlayer(p){try{if(!uuid.test(p.id))throw Error('Player ID is not a UUID');await request('player','POST',{id:p.id,full_name:p.name,jersey_number:p.number||null,grade:p.grade,position:p.position},await token());roster.set(p.id,p);label('Roster saved to Supabase')}catch(e){label('Roster cloud save failed: '+e.message,true)}}
- async function coachMutation(method,id,made){try{if(!coachToken)throw Error('Open Coach Review and authorize cloud editing');await request('shot',method,{id,...(method==='PATCH'?{made}:{})},await token());if(method==='PATCH')cloudShots.set(id,{made});else cloudShots.delete(id);label('Coach correction saved to Supabase')}catch(e){label('Coach correction not synchronized: '+e.message,true)}}
+ async function coachMutation(method,id,made){try{await request('shot',method,{id,...(method==='PATCH'?{made}:{})},await token());if(method==='PATCH')cloudShots.set(id,{made});else cloudShots.delete(id);label('Coach correction saved to Supabase')}catch(e){label('Coach correction not synchronized: '+e.message,true)}}
  load();setInterval(()=>{if(document.visibilityState==='visible')load()},12000);document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')load()});
 })();
