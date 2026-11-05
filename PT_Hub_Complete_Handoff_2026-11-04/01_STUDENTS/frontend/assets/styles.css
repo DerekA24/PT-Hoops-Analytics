@@ -427,3 +427,9 @@ body[data-page="live-game"]{overflow-y:visible!important;height:auto!important;m
 .live-player-arrow{position:absolute;z-index:1;right:5px;top:50%;transform:translateY(-50%);display:grid;place-items:center;width:25px;height:25px;border:1.5px solid #e2e8f0;border-radius:50%;background:#354154;color:#fff;font-size:17px;line-height:1;pointer-events:none}
 .live-slot-dropdown select{appearance:none;-webkit-appearance:none;padding-right:35px;cursor:pointer}
 .live-slot-dropdown:focus-within .live-player-arrow{border-color:#fff;background:#4b5e77}
+.live-court-card{grid-template-rows:auto auto auto}
+.live-court{max-height:clamp(300px,calc(100dvh - 310px),500px)}
+.live-court-score{display:flex;justify-content:center;align-items:center;gap:14px;padding:6px 0 2px;text-align:center}
+.live-court-score>span{font-size:12px;color:#b8c5d4}.live-court-score>strong{font-size:28px;font-weight:850;color:#fff;line-height:1.1}
+.live-last-entry{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end}
+#liveUndo{justify-self:end;align-self:end;min-width:72px}

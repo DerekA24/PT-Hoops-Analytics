@@ -40,7 +40,9 @@
   $('liveGameSelector').innerHTML='<option value="">Select a game</option>'+list.map(entry=>{const item=entry.schedule||entry.game;return `<option value="${esc(entry.key)}">${esc(item.date||'Date TBD')} · ${item.location==='Away'?'@':'vs'} ${esc(item.opponent||'Opponent TBD')}${item.time?' · '+esc(item.time):''}</option>`}).join('');$('liveGameSelector').value=selection;
   const entry=selectedEntry(),game=entry?.game,opponent=(entry?.schedule||game)?.opponent||'Opponent',active=activePlayer(game);
   $('liveOpponentName').textContent=opponent;$('liveAddOpponent').disabled=!entry;
-  $('liveGameScore').textContent=entry?`Park Tudor ${score(game,'pt')} – ${score(game,'opponent')} ${opponent}`:'Park Tudor 0 \u2013 0 Opponent';
+  $('liveGameTeams').textContent=`Park Tudor vs ${opponent}`;
+  $('liveGameScore').textContent=`${score(game,'pt')} \u2013 ${score(game,'opponent')}`;
+  $('liveGameScore').setAttribute('aria-label',`Park Tudor ${score(game,'pt')}, ${opponent} ${score(game,'opponent')}`);
   const saved=game?.liveCourtPoint;if(saved&&Number.isFinite(saved.x)&&Number.isFinite(saved.y))point={x:Math.max(12,Math.min(488,saved.x)),y:Math.max(12,Math.min(458,saved.y))};updateDot();
   $('livePlayerSlots').innerHTML=Array.from({length:5},(_,slot)=>['pt','opponent'].map(team=>{
    const lineup=slots(game,team),id=lineup[slot],players=roster(game,team),player=players.find(p=>p.id===id),isActive=active?.team===team&&active.slot===slot;
