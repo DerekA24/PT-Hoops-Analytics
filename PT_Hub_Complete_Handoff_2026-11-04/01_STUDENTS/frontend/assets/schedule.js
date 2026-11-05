@@ -4,6 +4,24 @@
  const norm=value=>String(value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]/g,'');
  const sameGame=(a,b)=>a.date===b.date&&norm(a.opponent)===norm(b.opponent);
  let uploadKey='',draft=[];
+ let editPermit=false,hudlPermit=false,schedulePermit=false,resolveCoach=null,verifyingCoach=false;
+ function requireCoach(reason){
+  if(resolveCoach)return Promise.resolve(false);
+  return new Promise(resolve=>{resolveCoach=resolve;$('scheduleCoachReason').textContent=reason;$('scheduleCoachCode').value='';$('scheduleCoachError').textContent='';$('scheduleCoachGate').showModal();$('scheduleCoachCode').focus()});
+ }
+ function finishCoach(allowed){const resolve=resolveCoach;resolveCoach=null;$('scheduleCoachGate').close();if(resolve)resolve(allowed)}
+ $('scheduleCoachCodeForm').onsubmit=async e=>{
+  e.preventDefault();if(verifyingCoach)return;verifyingCoach=true;const pending=resolveCoach;
+  try{const valid=await window.PTCoachAccess.verify($('scheduleCoachCode').value);if(resolveCoach!==pending)return;if(!valid){$('scheduleCoachError').textContent='Incorrect access code.';return}finishCoach(true)}
+  catch{if(resolveCoach===pending)$('scheduleCoachError').textContent='Could not verify the coach access code. Please try again.'}
+  finally{verifyingCoach=false}
+ };
+ $('scheduleCoachCancel').onclick=()=>finishCoach(false);
+ $('scheduleCoachGate').addEventListener('cancel',e=>{e.preventDefault();finishCoach(false)});
+ $('scheduleCoachGate').addEventListener('close',()=>{if(resolveCoach){const resolve=resolveCoach;resolveCoach=null;resolve(false)}});
+ $('scheduleGameDialog').addEventListener('close',()=>{editPermit=false});
+ $('hudlImportDialog').addEventListener('close',()=>{hudlPermit=false});
+ window.addEventListener('pagehide',()=>{editPermit=false;hudlPermit=false;schedulePermit=false;for(const id of ['scheduleGameDialog','hudlImportDialog'])if($(id).open)$(id).close();if(resolveCoach)finishCoach(false)});
  function gameEntries(){
   const used=new Set(),entries=state.schedule.map(s=>{
    const game=state.games.find(g=>!used.has(g.id)&&(g.scheduleId===s.id||g.id===s.id||sameGame(g,s)));
@@ -27,7 +45,9 @@
   }).join(''):'<div class="card"><p>No games scheduled yet. Add a game or import your schedule CSV.</p></div>';
  }
  function scoreFields(){$('scheduleScoreFields').hidden=!$('schedulePlayed').checked}
- function openEditor(key=''){
+ async function openEditor(key=''){
+  if(!await requireCoach(key?'Enter the coach access code to edit this game.':'Enter the coach access code to add a game.'))return;
+  editPermit=true;
   const entry=key?findEntry(key):null;if(key&&!entry)return;
   const item=entry?.schedule||entry?.game||{},game=entry?.game||{};
   $('scheduleGameForm').reset();$('scheduleEditKey').value=key;$('scheduleEditorTitle').textContent=key?'Edit Game':'Add Game';
@@ -40,7 +60,7 @@
   const item=entry.schedule,game={id:uid(),scheduleId:item.id,date:item.date,opponent:item.opponent,time:item.time||'',location:item.location||'Home',hudlUrl:item.hudlUrl||'',events:[]};state.games.push(game);return game;
  }
  $('scheduleGameForm').onsubmit=e=>{
-  e.preventDefault();const key=$('scheduleEditKey').value,entry=key?findEntry(key):null;
+  e.preventDefault();if(!editPermit){$('scheduleEditorError').textContent='Coach access is required. Close this window and try again.';return}const key=$('scheduleEditKey').value,entry=key?findEntry(key):null;
   if(key&&!entry)return;
   const rawUrl=$('scheduleHudlUrl').value.trim(),url=rawUrl?hudlLink(rawUrl):'';
   if(rawUrl&&!url){$('scheduleEditorError').textContent='Use an HTTPS link on hudl.com.';return}
@@ -118,18 +138,22 @@
   }));
   $('saveHudlImport').disabled=!valid;$('hudlImportStatus').textContent=`${draft.length} player row(s). Saving replaces imported player totals for this game only.`;
  }
- function openUpload(key){
+ async function openUpload(key){
+  if(!await requireCoach('Enter the coach access code to upload Hudl stats for this game.'))return;
+  hudlPermit=true;
   const entry=findEntry(key);if(!entry)return;uploadKey=key;draft=[];
   const item=entry.schedule||entry.game;$('hudlImportGame').textContent=dateText(item.date)+' · '+item.opponent;
   $('hudlStatsFile').value='';$('hudlImportPreview').innerHTML='';$('hudlImportError').textContent='';$('hudlImportStatus').textContent=state.players.length?'Choose a per-game player stats CSV.':'Add your roster in Coach Review before uploading player stats.';$('saveHudlImport').disabled=true;$('hudlImportDialog').showModal();
  }
  $('hudlStatsFile').onchange=async e=>{
-  const file=e.target.files[0];if(!file)return;draft=[];$('hudlImportError').textContent='';$('hudlImportPreview').innerHTML='';$('saveHudlImport').disabled=true;
+  const file=e.target.files[0];if(!file)return;
+  if(!hudlPermit&&!await requireCoach('Enter the coach access code to upload Hudl stats.')){e.target.value='';return}hudlPermit=true;
+  draft=[];$('hudlImportError').textContent='';$('hudlImportPreview').innerHTML='';$('saveHudlImport').disabled=true;
   try{if(file.size>5*1024*1024)throw Error('Choose a CSV smaller than 5 MB.');draft=parseStats(await file.text());renderPreview()}catch(error){$('hudlImportError').textContent=error.message}
  };
  $('hudlImportPreview').onchange=e=>{const select=e.target.closest('[data-match-player]');if(!select)return;draft[Number(select.dataset.matchPlayer)].playerId=select.value;renderPreview()};
  $('saveHudlImport').onclick=()=>{
-  if($('saveHudlImport').disabled)return;const entry=findEntry(uploadKey);if(!entry){$('hudlImportError').textContent='This game no longer exists.';return}
+  if(!hudlPermit||$('saveHudlImport').disabled)return;const entry=findEntry(uploadKey);if(!entry){$('hudlImportError').textContent='This game no longer exists.';return}
   const game=ensureGame(entry);game.playerStats=draft.map(row=>({playerId:row.playerId,...row.stats}));game.played=true;game.statsImport={filename:$('hudlStatsFile').files[0]?.name||'',importedAt:new Date().toISOString(),source:'hudl-csv'};
   save();$('hudlImportDialog').close();$('schedulePageStatus').textContent=`Stats saved for ${game.opponent}. Game leaderboards and profile graphs are updated.`;
  };
@@ -140,11 +164,14 @@
  $('hudlStatsTemplate').onclick=()=>downloadText('PT_Hudl_Player_Stats_Template.csv',csvData([['Player Name','Jersey Number','GP','GS','MIN','PF','PTS','ORB','DRB','AST','TO','STL','BLK','PITP','FBP','2PM','2PA','3PM','3PA','FTM','FTA']]));
  $('schedulePageUpload').onchange=async e=>{
   const file=e.target.files[0];if(!file)return;
+  if(!schedulePermit&&!await requireCoach('Enter the coach access code to import a schedule CSV.')){e.target.value='';return}schedulePermit=false;
   try{const rows=await getCSV(file,['Date','Opponent','Location','Start Time','Notes']),incoming=[];
    for(const row of rows){const [date,opponent,location,time,notes]=row.values;if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||!Number.isFinite(Date.parse(date+'T12:00:00'))||!opponent||!['Home','Away','Neutral'].includes(location))throw Error('Invalid schedule data on row '+row.line);if(state.schedule.some(s=>sameGame(s,{date,opponent}))||incoming.some(s=>sameGame(s,{date,opponent})))continue;incoming.push({id:uid(),date,opponent,location,time,notes})}
    state.schedule.push(...incoming);save();$('schedulePageStatus').textContent=`${incoming.length} game(s) added. Existing games were kept.`;
   }catch(error){$('schedulePageStatus').textContent='Schedule import failed: '+error.message}finally{e.target.value=''}
  };
+ $('importScheduleButton').onclick=async()=>{if(!await requireCoach('Enter the coach access code to import a schedule CSV.'))return;schedulePermit=true;$('schedulePageUpload').click()};
+ $('schedulePageUpload').addEventListener('cancel',()=>{schedulePermit=false});
  window.renderSchedulePage=render;
  window.seedSeasonSchedule?.();
  render();
