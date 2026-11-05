@@ -78,6 +78,24 @@
    if(removedShots){shotIds.clear();for(const x of state.shooting)shotIds.add(x.id);}
    const existingS=new Set(state.shooting.map(s=>s.id));
    for(const x of data.shots){cloudShots.set(x.id,{made:x.made});if(!existingS.has(x.id)){const name=byId.get(x.drill_id)||'Custom Drill';state.shooting.push({id:x.id,playerId:x.player_id,type:name,drill:name,date:x.practice_date,makes:x.made?1:0,attempts:1,recordedAt:x.created_at,source:'supabase'});existingS.add(x.id);shotIds.add(x.id);addedShots++}}
+   const cleanupKey='pt_hub_remove_owen_platt_test_data_v1';
+   if(!localStorage.getItem(cleanupKey)){
+    const owenIds=new Set(state.players.filter(p=>String(p.name||'').trim().toLowerCase()==='owen platt').map(p=>p.id));
+    if(owenIds.size){
+     const beforeShots=state.shooting.length,beforeCourt=state.court.length,beforeState=JSON.stringify(state);
+     state.shooting=state.shooting.filter(x=>!owenIds.has(x.playerId));
+     state.court=state.court.filter(x=>!owenIds.has(x.playerId));
+     for(const game of state.games){
+      if(Array.isArray(game.playerStats))game.playerStats=game.playerStats.filter(x=>!owenIds.has(x.playerId));
+      if(Array.isArray(game.events))game.events=game.events.filter(x=>!owenIds.has(x.playerId));
+      if(Array.isArray(game.starters))game.starters=game.starters.filter(id=>!owenIds.has(id));
+      if(owenIds.has(game.liveActive?.playerId))game.liveActive=null;
+     }
+     state.corrections=state.corrections.filter(x=>!owenIds.has(x.playerId));
+     if(beforeShots!==state.shooting.length||beforeCourt!==state.court.length||beforeState!==JSON.stringify(state))save();
+    }
+    localStorage.setItem(cleanupKey,'done');
+   }
    if(addedPlayers||addedShots||removedShots)save();
    if(!lastError)label('Shared database connected · '+data.players.length+' athletes · '+data.shots.length+' shots'+(addedPlayers||addedShots?' · refreshed':''));
    flush();
