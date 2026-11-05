@@ -1,6 +1,6 @@
 /* PT Basketball Analytics Hub: shared courtside release. Public shooting, secured coach edits. */
 (()=>{'use strict';
- const base='https://wlgicbxuwzokvwpjkaus.supabase.co';
+ const base='https://jbznaeunhtqgagnqweqw.supabase.co';
  const endpoint=base+'/functions/v1/pt-hub';
  const shotIds=new Set(state.shooting.map(s=>s.id));
  const knownPlayers=new Set(state.players.map(p=>p.id));
@@ -86,7 +86,7 @@
  async function authCall(route,body){const key=cloudKey.value.trim();if(!key.startsWith('sb_publishable_'))throw Error('Enter the Supabase publishable key');const r=await fetch(base+'/auth/v1/'+route,{method:'POST',headers:{'Content-Type':'application/json','apikey':key},body:JSON.stringify(body)});const v=await r.json();if(!r.ok)throw Error(v.msg||v.error_description||v.message||'Authentication failed');return v}
  const review=document.getElementById('coach')||document.getElementById('coachReview')||document.querySelector('[id*=coach]');const coachPanel=document.createElement('div');coachPanel.className='card';coachPanel.id='ptCoachCloud';coachPanel.innerHTML='<h3>Coach cloud permissions</h3><p class="muted">Coach Review uses the existing access code. Sign in here once to authorize edits and roster updates to the shared database.</p><div class="row"><input id="ptCoachKey" type="hidden"><label>Coach email<input id="ptCoachEmail" type="email" autocomplete="username"></label><label>Coach password<input id="ptCoachPass" type="password" autocomplete="current-password"></label><button id="ptCoachConnect" type="button">Authorize coach changes</button></div><p id="ptCoachResult" class="muted">Not authorized for cloud edits</p>';
  review?.insertAdjacentElement('afterbegin',coachPanel);
- const cloudKey=coachPanel.querySelector('#ptCoachKey');cloudKey.value='sb_publishable_LpCHWch9ykdpSUowASzxAQ_bVprjzfj';
+ const cloudKey=coachPanel.querySelector('#ptCoachKey');cloudKey.value='sb_publishable_pqdUf6JCZIyHjhBgAEcKcg_8HIyNwPF';
  coachPanel.querySelector('#ptCoachConnect').onclick=async()=>{const msg=coachPanel.querySelector('#ptCoachResult');try{
   const data=await authCall('token?grant_type=password',{email:coachPanel.querySelector('#ptCoachEmail').value,password:coachPanel.querySelector('#ptCoachPass').value});
   const r=await fetch(base+'/rest/v1/rpc/pt_is_coach',{method:'POST',headers:{apikey:cloudKey.value.trim(),Authorization:'Bearer '+data.access_token,'Content-Type':'application/json'},body:'{}'});
