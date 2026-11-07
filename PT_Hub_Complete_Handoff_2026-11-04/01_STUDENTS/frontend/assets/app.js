@@ -7,6 +7,7 @@ state.court=Array.isArray(state.court)?state.court:[];
 state.schedule=Array.isArray(state.schedule)?state.schedule:[];
 state.corrections=Array.isArray(state.corrections)?state.corrections:[];
 state.hiddenBoards=Array.isArray(state.hiddenBoards)?state.hiddenBoards:[];
+state.drillResults=Array.isArray(state.drillResults)?state.drillResults:[];
 const $=id=>document.getElementById(id),uid=()=>typeof crypto!=='undefined'&&crypto.randomUUID?crypto.randomUUID():String(Date.now()+Math.random()),esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])),pct=(m,a)=>a?(100*m/a).toFixed(1)+'%':'—',today=()=>new Date().toLocaleDateString('en-CA');
 let editPlayer=null;
 function toast(v){$('notice').textContent=v;$('notice').style.display='block';setTimeout(()=>$('notice').style.display='none',1900)}
@@ -40,6 +41,7 @@ function isNewLiveEvent(game,event){
 }
 function render(){
  if($('profiles')){refreshOptions('profilePlayer');if($('profilePlayer')&&!$('profilePlayer').value&&state.players.length)$('profilePlayer').value=state.players[0].id;renderProfile()}
+ if(window.renderDrillResults)window.renderDrillResults();
  renderRoster();renderSchedule();renderLeaderboards();renderCoachReview();renderBoardManager();if(window.renderOtherLeaderboards)window.renderOtherLeaderboards();if(window.renderSchedulePage)window.renderSchedulePage();if(window.renderLiveGame)window.renderLiveGame();
  if($('athlete')){const current=athleteId;const options=$('athletePlayer');if(options.options.length!==state.players.length+1)athleteRefreshRoster();else{options.value=current;updateAthleteDisplay()}}
 }
@@ -51,7 +53,7 @@ if($('rosterRows')&&$('editName')&&$('editNumber')&&$('editGrade')&&$('editPosit
 if($('cancelPlayer')&&$('rosterEditor')){$('cancelPlayer').onclick=()=>$('rosterEditor').hidden=true;}
 if($('savePlayer')&&$('editName')&&$('editNumber')&&$('editGrade')&&$('editPosition')&&$('rosterEditor')){$('savePlayer').onclick=()=>{const p=state.players.find(p=>p.id===editPlayer),name=$('editName').value.trim(),number=$('editNumber').value.trim();if(!p||!name||!validNumber(number))return toast('Enter valid name and jersey');if(state.players.some(x=>x.id!==p.id&&+x.number===+number))return toast('Jersey already used');Object.assign(p,{name,number,grade:$('editGrade').value,position:$('editPosition').value});$('rosterEditor').hidden=true;save()};}
 if($('export')){$('export').onclick=()=>{const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='PT_Basketball_Backup.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)};}
-if($('import')){$('import').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{const v=JSON.parse(await f.text());if(!Array.isArray(v.players)||!Array.isArray(v.games)||!Array.isArray(v.shooting)||!Array.isArray(v.court))throw Error('Invalid file format');if(confirm('Replace all data on this device with this backup?')){state=v;state.schedule=Array.isArray(state.schedule)?state.schedule:[];save()}}catch(err){alert('Import failed: '+err.message)}e.target.value=''};}
+if($('import')){$('import').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{const v=JSON.parse(await f.text());if(!Array.isArray(v.players)||!Array.isArray(v.games)||!Array.isArray(v.shooting)||!Array.isArray(v.court))throw Error('Invalid file format');if(confirm('Replace all data on this device with this backup?')){state=v;state.drillResults=Array.isArray(state.drillResults)?state.drillResults:[];state.schedule=Array.isArray(state.schedule)?state.schedule:[];save()}}catch(err){alert('Import failed: '+err.message)}e.target.value=''};}
 window.addEventListener('offline',()=>setStorageStatus('Offline · Saved on this device · No shared sync',false));
 window.addEventListener('online',()=>setStorageStatus('Online · Saved on this device · No shared sync',false));
 const RECENT_KEY='pt-basketball-recent-athletes-v1';
@@ -112,6 +114,7 @@ function renderBoardManager(){
 }
 function setBoardVisibility(name,hidden){if(!leaderboardDrills().includes(name)&&!state.hiddenBoards.includes(name))return;
  state.hiddenBoards=Array.isArray(state.hiddenBoards)?state.hiddenBoards:[];
+state.drillResults=Array.isArray(state.drillResults)?state.drillResults:[];
  state.hiddenBoards=state.hiddenBoards.filter(x=>x!==name);if(hidden)state.hiddenBoards.push(name);
  if(hidden&&$('lbCategory')?.value===name)$('lbCategory').value='';save();toast(hidden?'Board hidden; shooting data retained':'Board restored');
 }
@@ -176,18 +179,25 @@ function renderLeaderboards(){if(!$('leaderboards'))return;
  const dest=$('lbChampions');if(dest)dest.innerHTML=`<div class="lb-feature-title">DAILY SHOOTING CHAMPIONS</div><p class="muted">One win for finishing first in shooting percentage in a drill on a practice date with at least 20 attempts. Ties share a win. Counts recalculate after coach corrections.</p>`+(winners.length?table(['Rank','Athlete','Daily Shooting Wins'],winners.slice(0,20).map((x,i)=>`<tr><td>${i+1}</td><td>${esc(playerName(x.id))}</td><td><strong>${x.count}</strong></td></tr>`)):'<p class="muted">Daily champions appear when athletes record at least 20 attempts in a drill on the same date.</p>');
 }
 function coachRows(){const p=$('coachPlayer').value,t=$('coachCategory').value,q=String($('coachPlayerSearch')?.value||'').trim().toLowerCase();return state.shooting.filter(x=>(!p||x.playerId===p)&&(!q||playerName(x.playerId).toLowerCase().includes(q)||String(state.players.find(player=>player.id===x.playerId)?.number??'').toLowerCase()===q.replace(/^#/,''))&&dateInRange(x.date,'coach')&&(!t||x.type===t)).slice().sort((a,b)=>String(b.recordedAt||b.date).localeCompare(String(a.recordedAt||a.date)))}
-function renderCoachReview(){if(!$('coach'))return;dateRangeValid('coach');const recovery=$('coachRecovery');if(recovery)recovery.style.display=state.players.length?'none':'block';const old=$('coachPlayer').value;refreshOptions('coachPlayer');if(old&&state.players.some(x=>x.id===old))$('coachPlayer').value=old;syncFilterSelect('coachCategory',getDrillTypes());const rows=coachRows();$('coachEntries').innerHTML='<h3>Individual Submissions ('+rows.length+')</h3><p class="muted">Select a submission and enter the correct Made and Missed totals. Athlete, date, and drill remain unchanged. Corrections appear in Correction History.</p>'+(rows.length?table(['Date','Athlete','Drill','Detail','Makes','Attempts','Actions'],rows.map(x=>`<tr><td>${esc(x.date)}</td><td>${esc(playerName(x.playerId))}</td><td>${esc(x.type)}</td><td>${esc(x.drill||'')}</td><td>${Number(x.makes)||0}</td><td>${Number(x.attempts)||0}</td><td><button data-coach-edit="${esc(x.id)}">Edit</button> <button data-coach-delete="${esc(x.id)}">Delete</button></td></tr>`)):'<p class="muted">No shooting submissions match these filters. Select Clear Filters to see all records. If this is a new HTML file, use Backup to import your JSON data first.</p>');
+function practiceTimestamp(record){
+ const raw=record.recordedAt||record.created_at;
+ if(!raw||!Number.isFinite(Date.parse(raw)))return '<span class="muted">Not recorded</span>';
+ const date=new Date(raw),label=date.toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit',hour12:true});
+ return `<time datetime="${esc(date.toISOString())}" title="${esc(date.toISOString())}">${esc(label)}</time>`;
+}
+function renderCoachReview(){if(!$('coach'))return;dateRangeValid('coach');const recovery=$('coachRecovery');if(recovery)recovery.style.display=state.players.length?'none':'block';const old=$('coachPlayer').value;refreshOptions('coachPlayer');if(old&&state.players.some(x=>x.id===old))$('coachPlayer').value=old;syncFilterSelect('coachCategory',getDrillTypes());const rows=coachRows();$('coachEntries').innerHTML='<h3>Individual Submissions ('+rows.length+')</h3><p class="muted">Select a submission and enter the correct Made and Missed totals. Use Delete to remove an individual make, miss, or entire submission. Athlete, date, and drill remain unchanged when editing. Corrections and deletions appear in Correction History.</p>'+(rows.length?table(['Date','Recorded At','Athlete','Drill','Detail','Makes','Misses','Attempts','Actions'],rows.map(x=>`<tr><td>${esc(x.date)}</td><td>${practiceTimestamp(x)}</td><td>${esc(playerName(x.playerId))}</td><td>${esc(x.type)}</td><td>${esc(x.drill||'')}</td><td>${Number(x.makes)||0}</td><td>${Math.max(0,(Number(x.attempts)||0)-(Number(x.makes)||0))}</td><td>${Number(x.attempts)||0}</td><td><button data-coach-edit="${esc(x.id)}">Edit</button> <button data-coach-delete="${esc(x.id)}">Delete</button></td></tr>`)):'<p class="muted">No shooting submissions match these filters. Select Clear Filters to see all records. If this is a new HTML file, use Backup to import your JSON data first.</p>');
  $('coachAudit').innerHTML=state.corrections.length?table(['When','Action','Athlete','Reason','Before','After'],state.corrections.slice().reverse().slice(0,75).map(x=>`<tr><td>${esc(x.at)}</td><td>${esc(x.action)}</td><td>${esc(x.player)}</td><td>${esc(x.reason)}</td><td>${esc(x.before)}</td><td>${esc(x.after)}</td></tr>`)):'<p class="muted">No corrections recorded.</p>';
 }
 function describeShot(x){return x?`${x.date} | ${x.type} | ${x.drill||''} | ${x.makes}/${x.attempts}`:'Deleted'}
 function coachEdit(id,remove){
+ if(!window.PTCoachAccess?.isUnlocked()){toast('Enter the coach access code to change submissions.');$('coachUnlock')?.click();return}
  const item=state.shooting.find(x=>x.id===id);if(!item)return;
  if(remove){
   if(!confirm('Delete this submission? The original record will remain in Correction History.'))return;
   const old={...item};
   const applyLocal=()=>{state.shooting=state.shooting.filter(x=>x.id!==id);state.corrections.push({id:uid(),at:new Date().toISOString(),action:'Delete',player:playerName(old.playerId),playerId:old.playerId,recordId:old.id,reason:'Coach removed incorrect submission',before:describeShot(old),after:'Deleted',beforeRecord:old,afterRecord:null});save();toast('Submission deleted');};
-  if(typeof window.ptCoachDeleteShot==='function'&&window.ptCloudHasShot?.(id)){
-   window.ptCoachDeleteShot(id).then(applyLocal).catch(e=>{toast('Cloud deletion failed: '+e.message);alert('The shared shot was NOT deleted. '+e.message+' Sign in under Coach cloud permissions and try again.');});return;
+  if(typeof window.ptCoachDeleteShot==='function'&&(window.ptCloudHasShot?.(id)||old.source==='supabase')){
+   window.ptCoachDeleteShot(id).then(applyLocal).catch(e=>{toast('Cloud deletion failed: '+e.message);alert('The shared shot was NOT deleted. '+e.message+' Check the connection and try again. Coach access uses only the access code.');});return;
   }
   applyLocal();return;
  }
