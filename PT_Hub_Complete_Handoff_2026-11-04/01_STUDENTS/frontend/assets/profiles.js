@@ -79,7 +79,15 @@ function profileRecords({allDates=profileAllDates}={}){
  }
  return records;
 }
-function profileColor(makes,attempts){return attempts?`hsl(${Math.round(215-215*makes/attempts)} 72% 40%)`:'#25313d'}
+const profileHeatColors=['#dc2626','#f97316','#facc15','#a3e635','#16a34a'];
+const profileHeatThresholds={rim:[45,50,60,65],floaters:[30,35,45,50],midLow:[30,35,45,50],midHigh:[25,30,40,45],corner:[20,25,35,40],wing:[20,25,35,40],slot:[20,25,35,40],top:[20,25,35,40],free:[50,60,70,80]};
+function profileColor(makes,attempts,zone){
+ if(!attempts)return '#25313d';
+ const thresholds=profileHeatThresholds[zone];if(!thresholds)return '#25313d';
+ // Compare unrounded percentages so values below a cutoff stay in their band.
+ const band=thresholds.filter(cutoff=>100*makes>=cutoff*attempts).length;
+ return profileHeatColors[band];
+}
 function renderProfile(){
  if(!document.getElementById('profiles'))return;
  dateRangeValid('court');
@@ -97,7 +105,7 @@ function renderProfile(){
   const category=profileCategory(shot),c=categories.get(category)||{m:0,a:0};c.m+=shot.makes;c.a+=shot.attempts;categories.set(category,c);
   const month=String(shot.date||'').slice(0,7)||'Undated',m=months.get(month)||{m:0,a:0};m.m+=shot.makes;m.a+=shot.attempts;months.set(month,m);
  }
- $('heatZones').innerHTML=profileZones.map(z=>{const s=zones.get(z.id);return `<path data-zone="${z.id}" d="${z.path}" fill="${profileColor(s.m,s.a)}" stroke="#101820" stroke-width="2"><title>${esc(z.name)}: ${s.a?s.m+'/'+s.a+' · '+pct(s.m,s.a):'No shots'}</title></path>`}).join('');
+ $('heatZones').innerHTML=profileZones.map(z=>{const s=zones.get(z.id);return `<path data-zone="${z.id}" d="${z.path}" fill="${profileColor(s.m,s.a,z.id)}" stroke="#101820" stroke-width="2"><title>${esc(z.name)}: ${s.a?s.m+'/'+s.a+' · '+pct(s.m,s.a):'No shots'}</title></path>`}).join('');
  $('heatLabels').innerHTML=profileZones.map(z=>{const s=zones.get(z.id),transform=z.rotate?` transform="rotate(-90 ${z.x} ${z.y})"`:'';return `<text x="${z.x}" y="${z.y-9}" text-anchor="middle"${transform}><tspan x="${z.x}">${esc(z.name)}</tspan><tspan x="${z.x}" dy="16" class="heat-zone-value">${s.a?pct(s.m,s.a):'No shots'}</tspan>${s.a?`<tspan x="${z.x}" dy="14">${s.m}/${s.a}</tspan>`:''}</text>`}).join('');
  $('markers').innerHTML=records.filter(profileLocation).map(s=>`<circle cx="${Number(s.x)}" cy="${Number(s.y)}" r="3" fill="${s.makes?'#fff':'#101820'}" stroke="#fff" stroke-width="1"/>`).join('');
  $('courtMode').textContent=`${label} · ${profileAllDates?'Full season':dateRangeLabel('court')} · ${mapped} of ${attempts} attempts mapped${attempts>mapped?' · '+(attempts-mapped)+' without a court zone':''}${attempts?'':'. No shots recorded for this selection.'}`;

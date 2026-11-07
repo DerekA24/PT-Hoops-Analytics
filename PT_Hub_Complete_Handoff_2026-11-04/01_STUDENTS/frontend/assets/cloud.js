@@ -13,12 +13,12 @@
  const badge=document.getElementById('storageStatus');
  const label=(msg,error=false)=>{lastError=error?msg:'';status.textContent=msg;status.classList.toggle('pt-error',error);if(badge)badge.textContent=error?'Cloud save needs attention':'Shared team data · Supabase';};
  function request(action,method='GET',body=null,token=''){
-   return fetch(endpoint+'?action='+encodeURIComponent(action),{method,headers:{'Content-Type':'application/json',...(token?{'Authorization':'Bearer '+token}:{})},...(body?{body:JSON.stringify(body)}:{})}).then(async r=>{let v;try{v=await r.json()}catch{throw Error('Cloud service unavailable')}if(!r.ok)throw Error(v.error||'Cloud request failed');return v});
+   return fetch(endpoint+'?action='+encodeURIComponent(action),{method,headers:{'Content-Type':'application/json',...(token?{'X-Coach-Code':token}:{})},...(body?{body:JSON.stringify(body)}:{})}).then(async r=>{let v;try{v=await r.json()}catch{throw Error('Cloud service unavailable')}if(!r.ok)throw Error(v.error||'Cloud request failed');return v});
  }
  // Secure deletion bridge for Coach Review. Never claim success before Supabase confirms.
  window.ptCloudHasShot=(id)=>cloudShots.has(id);
  window.ptCoachDeleteShot=async(id)=>{
-  if(!cloudShots.has(id))return;
+  if(!cloudShots.has(id)&&!state.shooting.some(s=>s.id===id&&s.source==='supabase'))return;
   const jwt=await token();
   await request('shot','DELETE',{id},jwt);
   cloudShots.delete(id);
@@ -49,7 +49,7 @@
       if(!roster.has(s.playerId)){label('This athlete is not yet in the shared roster. Coach must add them to Supabase.',true);break}
       const drill=drills.get(String(s.type||'').toLowerCase());
       if(!drill){label(String(s.type||'This drill')+' needs database setup before it can sync. The shot is saved on this device.',true);break}
-      await request('shot','POST',{id:s.id,player_id:s.playerId,drill_id:drill,made:Number(s.makes)===1,practice_date:s.date});
+      await request('shot','POST',{id:s.id,player_id:s.playerId,drill_id:drill,made:Number(s.makes)===1,practice_date:s.date,recorded_at:s.recordedAt});
       cloudShots.set(s.id,{made:Number(s.makes)===1});pending.shift();remember();label('Shot saved to the shared team database');
    }}catch(e){label('Shot saved on this device. Cloud retry pending: '+e.message,true)}finally{busy=false}}
  async function load(){

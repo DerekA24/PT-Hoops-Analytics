@@ -1,0 +1,4 @@
+# Coach operations validate the access code inside the Edge Function.
+# Do not require an obsolete Supabase account JWT at the gateway.
+[functions.pt-hub]
+verify_jwt = false
