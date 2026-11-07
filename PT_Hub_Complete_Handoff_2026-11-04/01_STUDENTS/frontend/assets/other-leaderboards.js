@@ -77,8 +77,24 @@
   return totals;
  }
  const format=value=>Number.isInteger(value)?String(value):value.toFixed(1);
+ let drillWinsMetric='wins';
+ function renderDrillWins(){
+  const totals=new Map();
+  for(const result of state.drillResults||[]){
+   if(!['win','loss'].includes(result.result)||!result.playerId)continue;
+   if($('otherScope').value==='range'&&!dateInRange(result.date,'other'))continue;
+   const row=totals.get(result.playerId)||{id:result.playerId,wins:0,losses:0};
+   row[result.result==='win'?'wins':'losses']++;totals.set(row.id,row);
+  }
+  const score=row=>drillWinsMetric==='pct'?row.wins/(row.wins+row.losses):row.wins;
+  const rows=[...totals.values()].sort((a,b)=>score(b)-score(a)||playerName(a.id).localeCompare(playerName(b.id)));
+  let lastScore=null,lastRank=0;
+  $('otherDrillWins').innerHTML='<div class="drill-wins-heading"><h3 class="lb-feature-title">DRILL WINS</h3><div class="drill-wins-toggle" role="group" aria-label="Rank drill wins by">'+[['wins','Total Wins'],['pct','Win %']].map(([value,label])=>`<button type="button" data-drill-metric="${value}" aria-pressed="${drillWinsMetric===value}">${label}</button>`).join('')+'</div></div><p class="muted">Ranked by '+(drillWinsMetric==='pct'?'win percentage (wins divided by wins + losses)':'total wins')+'. Ties share a rank. Uses the selected date range. Minimum Games applies only to game stats above.</p>'+(rows.length?table(['Rank','Player','Drill Wins','Drill Losses','Win %'],rows.map((row,i)=>{const value=score(row),rank=value===lastScore?lastRank:i+1;lastScore=value;lastRank=rank;return `<tr class="${rank<=3?'lb-top':''}"><td>${rank}</td><td>${esc(playerName(row.id))}</td><td><strong>${row.wins}</strong></td><td>${row.losses}</td><td>${(100*row.wins/(row.wins+row.losses)).toFixed(1)}%</td></tr>`})):'<p class="muted">No drill results recorded for these dates. Record wins and losses in Enter Practice Data.</p>');
+
+ }
  function render(){
   dateRangeValid('other');
+  renderDrillWins();
   const games=state.games.filter(g=>(g.played||g.final||g.events?.length||g.playerStats?.length)&&($('otherScope').value!=='range'||dateInRange(g.date,'other')));
   const totals=totalsFor(games),minimum=Math.max(1,Math.floor(Number($('otherMinGames').value)||1));
   const selected=$('otherStat').value,athletes=new Set();let recordedStats=0;
@@ -95,6 +111,7 @@
   const pts=[...totals.get('pts').values()].reduce((n,r)=>n+r.value,0);
   $('otherSummary').innerHTML=[['Games',games.length],['Athletes Ranked',athletes.size],['Stats Recorded',recordedStats],['Recorded Points',format(pts)]].map(([name,value])=>`<div class="card"><small>${name}</small><div class="stat">${value}</div></div>`).join('');
  }
+ $('otherDrillWins').addEventListener('click',e=>{const button=e.target.closest('[data-drill-metric]');if(!button)return;drillWinsMetric=button.dataset.drillMetric;renderDrillWins();$('otherDrillWins').querySelector(`[data-drill-metric="${drillWinsMetric}"]`)?.focus()});
  $('otherStat').innerHTML='<option value="">All Stats</option>'+stats.map(s=>`<option value="${s.key}">${s.label}</option>`).join('');
  for(const id of ['otherScope','otherStat','otherMinGames'])$(id).addEventListener('change',render);
  $('otherMinGames').addEventListener('input',render);

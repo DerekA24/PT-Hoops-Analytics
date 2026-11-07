@@ -8,7 +8,7 @@ const allowedOrigin=(origin:string|null)=>{
  return null;
 };
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-function reply(v:unknown,s=200){return new Response(JSON.stringify(v),{status:s,headers:{"Content-Type":"application/json","Access-Control-Allow-Origin":"*","Access-Control-Allow-Methods":"GET,POST,PATCH,DELETE,OPTIONS","Access-Control-Allow-Headers":"content-type,authorization,apikey,x-client-info","Cache-Control":"no-store"}})}
+function reply(v:unknown,s=200){return new Response(JSON.stringify(v),{status:s,headers:{"Content-Type":"application/json","Access-Control-Allow-Origin":"*","Access-Control-Allow-Methods":"GET,POST,PATCH,DELETE,OPTIONS","Access-Control-Allow-Headers":"content-type,authorization,apikey,x-client-info,x-coach-code","Cache-Control":"no-store"}})}
 const fail=(m:string,c=400)=>reply({error:m},c);
 Deno.serve(async req=>{
  if(req.method==="OPTIONS")return reply({},200);
@@ -32,13 +32,14 @@ Deno.serve(async req=>{
  const body=await req.json();
  if(req.method==="POST"&&action==="shot"){
  if(!uuid.test(body.id||"")||!uuid.test(body.player_id||"")||!uuid.test(body.drill_id||"")||typeof body.made!=="boolean"||typeof body.practice_date!=="string"||!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(body.practice_date))return fail("Invalid shooting data");
+ if(body.recorded_at!==undefined&&(typeof body.recorded_at!=="string"||!/^\d{4}-\d{2}-\d{2}T/.test(body.recorded_at)||!Number.isFinite(Date.parse(body.recorded_at))))return fail("Invalid recording timestamp");
  const [p,d]=await Promise.all([db.from("pt_players").select("id").eq("id",body.player_id).eq("active",true).maybeSingle(),db.from("pt_drills").select("id").eq("id",body.drill_id).eq("active",true).maybeSingle()]);
  if(!p.data||!d.data)return fail("Unknown player or drill",403);
- const {error}=await db.from("pt_shots").upsert({id:body.id,player_id:body.player_id,drill_id:body.drill_id,made:body.made,practice_date:body.practice_date,entered_by:null,notes:"Public courtside entry"},{onConflict:"id",ignoreDuplicates:true});
+ const {error}=await db.from("pt_shots").upsert({id:body.id,player_id:body.player_id,drill_id:body.drill_id,made:body.made,practice_date:body.practice_date,entered_by:null,notes:"Public courtside entry",...(body.recorded_at?{created_at:new Date(body.recorded_at).toISOString()}:{})},{onConflict:"id",ignoreDuplicates:true});
  return error?fail("Shot could not be saved",500):reply({ok:true,id:body.id});
  }
  // The coach access code authorizes roster changes and shooting corrections.
- const code=req.headers.get("authorization")?.replace(/^Bearer\s+/i,"")||"";
+ const code=req.headers.get("x-coach-code")||"";
  if(code!=="232323")return fail("Valid coach access code required",401);
  if(req.method==="POST"&&action==="player"){
  if(!uuid.test(body.id||"")||typeof body.full_name!=="string"||body.full_name.trim().length<2||body.full_name.length>90)return fail("Invalid player");
