@@ -10,7 +10,7 @@ Prepared November 4, 2026. Read before editing.
 
 ## Live architecture
 Browser -> Netlify/Vercel frontend -> Supabase Edge Function `https://jbznaeunhtqgagnqweqw.supabase.co/functions/v1/pt-hub` -> PostgreSQL.
-The active frontend is in `frontend/`, with eight HTML pages and shared CSS and JavaScript in `frontend/assets/`. `index.html` opens Enter Practice Data. Roster, schedule, and backup tools live inside Coach Review. Practice Analytics has been removed. `pt-hub` is a Deno TypeScript Edge Function. The web code uses a publishable Supabase key for coach sign-in; the service role secret stays server-side in Supabase only.
+The active frontend is in `frontend/`, with eight HTML pages and shared CSS and JavaScript in `frontend/assets/`. `index.html` opens Enter Practice Data. Roster, schedule, and backup tools live inside Coach Review. Practice Analytics has been removed. `pt-hub` is a Deno TypeScript Edge Function. Coach access uses code 232323 for both the Coach Review gate and cloud edits; no email/password sign-in is required. The service role secret stays server-side in Supabase only.
 
 ## Local development
 From the repository root, run `python -m http.server 8000 --bind 127.0.0.1 --directory "01_STUDENTS/frontend"`, then open `http://localhost:8000`.
@@ -29,9 +29,9 @@ Frontend: commit and test source in school-owned Git, and publish via the EXISTI
 ## Supabase API actions
 GET `?action=snapshot`: shared players/drills/shots.
 POST `?action=shot`: public shot entry.
-POST `?action=player`: authenticated authorized coach only.
-PATCH `?action=shot`: authenticated authorized coach correction.
-DELETE `?action=shot`: authenticated authorized coach deletion.
+POST `?action=player`: valid coach access code required.
+PATCH `?action=shot`: coach correction with valid access code.
+DELETE `?action=shot`: coach deletion with valid access code.
 
 ## Critical limitations
 * Web visitors can submit shots anonymously; the Origin header is NOT an access-control mechanism. School administration should evaluate student privacy and abuse prevention.
@@ -52,3 +52,10 @@ Other Leaderboards uses saved game events and optional per-game box scores. See 
 `schedule.html` lists the user-provided 16-game 2026-27 schedule in compact date/time/opponent/score rows. `assets/season-schedule.js` seeds those games once per browser without duplicating existing games. `assets/schedule.js` supports game editing, HTTPS Hudl links, schedule CSV imports, and per-game player-stats CSV uploads with roster matching and review before saving. Re-uploading replaces only that game's imported player totals. Uploaded shooting pairs feed game profile charts; explicit box-score values take precedence over legacy events. All schedule and game data stays in local storage and JSON backups; the Supabase API still syncs practice data only.
 
 `live-game.html` provides game selection, a clickable half-court, five player slots for each team, opponent roster creation, and quick-stat entry. Events persist to the selected game with team, player, court coordinates, and timestamp. Fast Break 2 records one made two-pointer tagged as a fast break. Opponent events are kept separate from Park Tudor analytics. Live events, lineups, and opponent rosters are saved locally and included in JSON backups.
+
+Schedule additions, edits, schedule CSV imports, and Hudl uploads prompt for the coach access code before opening the editor or file picker. They share the same verifier as Coach Review. Approval is limited to the current editor/import and cleared when it closes or the page is left. This is the existing local code gate; cloud edits use the same coach access after unlocking Coach Review. Deploy the updated `pt-hub` Edge Function together with the frontend; older deployed functions still require the previous account sign-in.
+
+## Code-only coach deletion
+Coach Review requires only the coach access code (232323 by default). Each individual make or miss has a Delete action under Individual Submissions. The same action also deletes an entire aggregate submission; corrections and deletions remain in the local Correction History. Cloud deletions must succeed before the local record is removed.
+
+Cloud coach operations use the `X-Coach-Code` header; Supabase account email/password sign-in is no longer used by the website. Deploy the frontend and updated Edge Function together. From `01_STUDENTS`, run `supabase functions deploy pt-hub --project-ref jbznaeunhtqgagnqweqw --no-verify-jwt` using the project administrator's existing CLI access. The checked-in `supabase/config.toml` also disables gateway JWT verification for this function, which validates the coach code internally. This deployment step is for administrators, not a coach login step.
