@@ -187,7 +187,7 @@ function coachEdit(id,remove){
   const old={...item};
   const applyLocal=()=>{state.shooting=state.shooting.filter(x=>x.id!==id);state.corrections.push({id:uid(),at:new Date().toISOString(),action:'Delete',player:playerName(old.playerId),playerId:old.playerId,recordId:old.id,reason:'Coach removed incorrect submission',before:describeShot(old),after:'Deleted',beforeRecord:old,afterRecord:null});save();toast('Submission deleted');};
   if(typeof window.ptCoachDeleteShot==='function'&&window.ptCloudHasShot?.(id)){
-   window.ptCoachDeleteShot(id).then(applyLocal).catch(e=>{toast('Cloud deletion failed: '+e.message);alert('The shared shot was NOT deleted. '+e.message+' Sign in under Coach cloud permissions and try again.');});return;
+   window.ptCoachDeleteShot(id).then(applyLocal).catch(e=>{toast('Cloud deletion failed: '+e.message);alert('The shared shot was NOT deleted. '+e.message+' Unlock Coach Review and try again.');});return;
   }
   applyLocal();return;
  }
@@ -221,7 +221,7 @@ function coachEdit(id,remove){
   if(Number(current.makes)===made&&Number(current.attempts)===made+missed){close();toast('No changes needed');return}
   const old={...current};current.makes=made;current.attempts=made+missed;
   state.corrections.push({id:uid(),at:new Date().toISOString(),action:'Edit shot totals',player:playerName(old.playerId),playerId:old.playerId,recordId:old.id,reason:'Coach corrected made and missed totals',before:describeShot(old),after:describeShot(current),beforeRecord:old,afterRecord:{...current}});
-  save();close();toast('Coach correction saved locally');
+  save();if(typeof window.ptCloudQueueSave==='function')window.ptCloudQueueSave();close();toast('Coach correction saved locally and queued for cloud sync');
  });
  document.body.appendChild(overlay);overlay.querySelector('#coachCountMade').focus();
 }

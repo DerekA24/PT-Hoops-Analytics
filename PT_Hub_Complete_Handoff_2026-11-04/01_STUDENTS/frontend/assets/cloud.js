@@ -13,13 +13,14 @@
  const badge=document.getElementById('storageStatus');
  const label=(msg,error=false)=>{lastError=error?msg:'';status.textContent=msg;status.classList.toggle('pt-error',error);if(badge)badge.textContent=error?'Cloud save needs attention':'Shared team data · Supabase';};
  function request(action,method='GET',body=null,token=''){
-   return fetch(endpoint+'?action='+encodeURIComponent(action),{method,headers:{'Content-Type':'application/json',...(token?{'Authorization':'Bearer '+token}:{})},...(body?{body:JSON.stringify(body)}:{})}).then(async r=>{let v;try{v=await r.json()}catch{throw Error('Cloud service unavailable')}if(!r.ok)throw Error(v.error||'Cloud request failed');return v});
+   const accessCode=window.PTCoachAccess?.sessionCode?.()||'';
+   return fetch(endpoint+'?action='+encodeURIComponent(action),{method,headers:{'Content-Type':'application/json',...(token?{'Authorization':'Bearer '+token}:{}),...(accessCode?{'X-Coach-Access-Code':accessCode}:{})},...(body?{body:JSON.stringify(body)}:{})}).then(async r=>{let v;try{v=await r.json()}catch{throw Error('Cloud service unavailable')}if(!r.ok)throw Error(v.error||'Cloud request failed');return v});
  }
  // Secure deletion bridge for Coach Review. Never claim success before Supabase confirms.
  window.ptCloudHasShot=(id)=>cloudShots.has(id);
  window.ptCoachDeleteShot=async(id)=>{
   if(!cloudShots.has(id))return;
-  const jwt=await token();
+  const jwt=coachToken?await token():'';
   await request('shot','DELETE',{id},jwt);
   cloudShots.delete(id);
   shotIds.delete(id);
@@ -84,7 +85,7 @@
   }catch(e){label('Shared data unavailable. Local recording continues; cloud sync will retry: '+e.message,true)}
  }
  async function authCall(route,body){const key=cloudKey.value.trim();if(!key.startsWith('sb_publishable_'))throw Error('Enter the Supabase publishable key');const r=await fetch(base+'/auth/v1/'+route,{method:'POST',headers:{'Content-Type':'application/json','apikey':key},body:JSON.stringify(body)});const v=await r.json();if(!r.ok)throw Error(v.msg||v.error_description||v.message||'Authentication failed');return v}
- const review=document.getElementById('coach')||document.getElementById('coachReview')||document.querySelector('[id*=coach]');const coachPanel=document.createElement('div');coachPanel.className='card';coachPanel.id='ptCoachCloud';coachPanel.innerHTML='<h3>Coach cloud permissions</h3><p class="muted">Coach Review uses the existing access code. Sign in here once to authorize edits and roster updates to the shared database.</p><div class="row"><input id="ptCoachKey" type="hidden"><label>Coach email<input id="ptCoachEmail" type="email" autocomplete="username"></label><label>Coach password<input id="ptCoachPass" type="password" autocomplete="current-password"></label><button id="ptCoachConnect" type="button">Authorize coach changes</button></div><p id="ptCoachResult" class="muted">Not authorized for cloud edits</p>';
+ const review=document.getElementById('coach')||document.getElementById('coachReview')||document.querySelector('[id*=coach]');const coachPanel=document.createElement('div');coachPanel.className='card';coachPanel.id='ptCoachCloud';coachPanel.innerHTML='<h3>Coach cloud permissions</h3><p class="muted">Your Coach Review access code authorizes edits and deletions. Optional Supabase account sign-in is available for administrators who use server-managed coach permissions.</p><div class="row"><input id="ptCoachKey" type="hidden"><label>Administrator email<input id="ptCoachEmail" type="email" autocomplete="username"></label><label>Administrator password<input id="ptCoachPass" type="password" autocomplete="current-password"></label><button id="ptCoachConnect" type="button">Optional administrator sign-in</button></div><p id="ptCoachResult" class="muted">Coach access code active for this device</p>';
  review?.insertAdjacentElement('afterbegin',coachPanel);
  const cloudKey=coachPanel.querySelector('#ptCoachKey');cloudKey.value='sb_publishable_pqdUf6JCZIyHjhBgAEcKcg_8HIyNwPF';
  coachPanel.querySelector('#ptCoachConnect').onclick=async()=>{const msg=coachPanel.querySelector('#ptCoachResult');try{
@@ -97,6 +98,6 @@
  }catch(e){msg.textContent='Coach authorization failed: '+e.message}};
  async function token(){if(!coachToken)throw Error('Sign in under Coach Review first');if(Date.now()>coachExpiry-60000){const d=await authCall('token?grant_type=refresh_token',{refresh_token:coachRefresh});coachToken=d.access_token;coachRefresh=d.refresh_token;coachExpiry=Date.now()+d.expires_in*1000}return coachToken}
  async function sendPlayer(p){try{if(!uuid.test(p.id))throw Error('Player ID is not a UUID');await request('player','POST',{id:p.id,full_name:p.name,jersey_number:p.number||null,grade:p.grade,position:p.position},await token());roster.set(p.id,p);label('Roster saved to Supabase')}catch(e){label('Roster cloud save failed: '+e.message,true)}}
- async function coachMutation(method,id,made){try{if(!coachToken)throw Error('Open Coach Review and authorize cloud editing');await request('shot',method,{id,...(method==='PATCH'?{made}:{})},await token());if(method==='PATCH')cloudShots.set(id,{made});else cloudShots.delete(id);label('Coach correction saved to Supabase')}catch(e){label('Coach correction not synchronized: '+e.message,true)}}
+ async function coachMutation(method,id,made){try{const jwt=coachToken?await token():'';if(!jwt&&!window.PTCoachAccess?.sessionCode?.())throw Error('Unlock Coach Review first');await request('shot',method,{id,...(method==='PATCH'?{made}:{})},jwt);if(method==='PATCH')cloudShots.set(id,{made});else cloudShots.delete(id);label('Coach correction saved to Supabase')}catch(e){label('Coach correction not synchronized: '+e.message,true)}}
  load();setInterval(()=>{if(document.visibilityState==='visible')load()},12000);document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')load()});
 })();

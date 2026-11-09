@@ -8,8 +8,9 @@ const allowedOrigin=(origin:string|null)=>{
  return null;
 };
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-function reply(v:unknown,s=200){return new Response(JSON.stringify(v),{status:s,headers:{"Content-Type":"application/json","Access-Control-Allow-Origin":"*","Access-Control-Allow-Methods":"GET,POST,PATCH,DELETE,OPTIONS","Access-Control-Allow-Headers":"content-type,authorization,apikey,x-client-info","Cache-Control":"no-store"}})}
+function reply(v:unknown,s=200){return new Response(JSON.stringify(v),{status:s,headers:{"Content-Type":"application/json","Access-Control-Allow-Origin":"*","Access-Control-Allow-Methods":"GET,POST,PATCH,DELETE,OPTIONS","Access-Control-Allow-Headers":"content-type,authorization,apikey,x-client-info,x-coach-access-code","Cache-Control":"no-store"}})}
 const fail=(m:string,c=400)=>reply({error:m},c);
+async function codeHash(code:string){const bytes=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(code));return Array.from(new Uint8Array(bytes),x=>x.toString(16).padStart(2,"0")).join("")}
 Deno.serve(async req=>{
  if(req.method==="OPTIONS")return reply({},200);
  const origin=allowedOrigin(req.headers.get("origin"));
@@ -38,11 +39,23 @@ Deno.serve(async req=>{
  return error?fail("Shot could not be saved",500):reply({ok:true,id:body.id});
  }
  const bearer=req.headers.get("authorization")?.replace(/^Bearer\s+/i,"")||"";
- if(!bearer)return fail("Coach sign in required",401);
- const {data:{user},error:authError}=await db.auth.getUser(bearer);
- if(authError||!user)return fail("Coach session invalid",401);
- const {data:coach}=await db.from("pt_coaches").select("user_id").eq("user_id",user.id).maybeSingle();
- if(!coach)return fail("Coach permission required",403);
+ if(bearer){
+  const {data:{user},error:authError}=await db.auth.getUser(bearer);
+  if(authError||!user)return fail("Coach session invalid",401);
+  const {data:coach}=await db.from("pt_coaches").select("user_id").eq("user_id",user.id).maybeSingle();
+  if(!coach)return fail("Coach permission required",403);
+ }else{
+  const code=req.headers.get("x-coach-access-code")?.trim()||"";
+  if(code.length<1)return fail("Coach access required",401);
+  const hash=await codeHash(code);
+  const {data:configured,error:accessError}=await db.from("pt_coach_access").select("code_hash").eq("id","primary").maybeSingle();
+  if(accessError)return fail("Coach access unavailable",500);
+  if(configured&&configured.code_hash!==hash)return fail("Coach access denied",403);
+  if(!configured){
+   const {error}=await db.from("pt_coach_access").insert({id:"primary",code_hash:hash});
+   if(error)return fail("Coach access could not be initialized",500);
+  }
+ }
  if(req.method==="POST"&&action==="player"){
  if(!uuid.test(body.id||"")||typeof body.full_name!=="string"||body.full_name.trim().length<2||body.full_name.length>90)return fail("Invalid player");
  const {error}=await db.from("pt_players").upsert({id:body.id,full_name:body.full_name.trim(),jersey_number:body.jersey_number===null?null:Number(body.jersey_number),grade:String(body.grade||"").slice(0,40),position:String(body.position||"").slice(0,40),active:true},{onConflict:"id"});
