@@ -30,6 +30,7 @@
   try{localStorage.setItem(KEY,JSON.stringify(next))}catch{ $('drillResultsStatus').textContent='Could not save results. Keep this page open and try again.';return }
   state.drillResults=next.drillResults;
   draft.clear();rosterSignature='';save();
+  if(typeof window.ptCloudQueueSave==='function')window.ptCloudQueueSave();
   const wins=records.filter(r=>r.result==='win').length;
   $('drillResultsStatus').textContent=`Saved ${wins} drill wins and ${records.length-wins} drill losses for ${date}.`;
  });

@@ -22,12 +22,13 @@ Deno.serve(async req=>{
  if(rateError||!allowed)return fail("Rate limit reached",429);
  const action=new URL(req.url).searchParams.get("action");
  if(req.method==="GET"&&action==="snapshot"){
- const [p,d,s]=await Promise.all([
+ const [p,d,s,r]=await Promise.all([
  db.from("pt_players").select("id,full_name,jersey_number,grade,position,active").eq("active",true).limit(250),
  db.from("pt_drills").select("id,name,active").eq("active",true).limit(250),
- db.from("pt_shots").select("id,player_id,drill_id,made,practice_date,created_at").order("created_at",{ascending:false}).limit(10000)]);
- if(p.error||d.error||s.error)return fail("Shared data unavailable",500);
- return reply({players:p.data,drills:d.data,shots:s.data});
+ db.from("pt_shots").select("id,player_id,drill_id,made,practice_date,created_at").order("created_at",{ascending:false}).limit(10000),
+ db.from("pt_drill_results").select("id,batch_id,player_id,result,practice_date,recorded_at,created_at").order("recorded_at",{ascending:false}).limit(10000)]);
+ if(p.error||d.error||s.error||r.error)return fail("Shared data unavailable",500);
+ return reply({players:p.data,drills:d.data,shots:s.data,drillResults:r.data});
  }
  if(!["POST","PATCH","DELETE"].includes(req.method))return fail("Unknown operation",404);
  const body=await req.json();
@@ -38,6 +39,13 @@ Deno.serve(async req=>{
  if(!p.data||!d.data)return fail("Unknown player or drill",403);
  const {error}=await db.from("pt_shots").upsert({id:body.id,player_id:body.player_id,drill_id:body.drill_id,made:body.made,practice_date:body.practice_date,entered_by:null,notes:"Public courtside entry",...(body.recorded_at?{created_at:new Date(body.recorded_at).toISOString()}:{})},{onConflict:"id",ignoreDuplicates:true});
  return error?fail("Shot could not be saved",500):reply({ok:true,id:body.id});
+ }
+ if(req.method==="POST"&&action==="drill_result"){
+ if(!uuid.test(body.id||"")||!uuid.test(body.batch_id||"")||!uuid.test(body.player_id||"")||!["win","loss"].includes(body.result)||typeof body.practice_date!=="string"||!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(body.practice_date)||typeof body.recorded_at!=="string"||!Number.isFinite(Date.parse(body.recorded_at)))return fail("Invalid drill result");
+ const {data:player}=await db.from("pt_players").select("id").eq("id",body.player_id).eq("active",true).maybeSingle();
+ if(!player)return fail("Unknown player",403);
+ const {error}=await db.from("pt_drill_results").upsert({id:body.id,batch_id:body.batch_id,player_id:body.player_id,result:body.result,practice_date:body.practice_date,recorded_at:new Date(body.recorded_at).toISOString()},{onConflict:"id",ignoreDuplicates:true});
+ return error?fail("Drill result could not be saved",500):reply({ok:true,id:body.id});
  }
  const bearer=req.headers.get("authorization")?.replace(/^Bearer\s+/i,"")||"";
  if(bearer){
@@ -55,6 +63,7 @@ Deno.serve(async req=>{
   if(!configured){
    const {error}=await db.from("pt_coach_access").insert({id:"primary",code_hash:hash});
    if(error)return fail("Coach access could not be initialized",500);
+   }
   }
  if(req.method==="POST"&&action==="player"){
  if(!uuid.test(body.id||"")||typeof body.full_name!=="string"||body.full_name.trim().length<2||body.full_name.length>90)return fail("Invalid player");

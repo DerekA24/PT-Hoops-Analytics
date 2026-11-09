@@ -6,7 +6,7 @@
  const knownPlayers=new Set(state.players.map(p=>p.id));
  const pendingKey='pt_hub_pending_v1';
  let pending=[];try{pending=JSON.parse(localStorage.getItem(pendingKey)||'[]')}catch{}
- let roster=new Map(),drills=new Map(),cloudShots=new Map(),busy=false,lastError='';
+ let roster=new Map(),drills=new Map(),cloudShots=new Map(),cloudDrillResults=new Set(),busy=false,lastError='';
  const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  const status=document.createElement('div');status.id='ptSharedStatus';status.setAttribute('role','status');status.textContent='Connecting shared team data…';
  document.querySelector('nav')?.insertAdjacentElement('afterend',status);
@@ -36,11 +36,24 @@
      if(!current.has(id)&&cloudShots.has(id))coachMutation('DELETE',id);
    }
    for(const s of state.shooting){if(cloudShots.has(s.id)&&validShot(s)&&Number(s.makes)!==Number(cloudShots.get(s.id).made))coachMutation('PATCH',s.id,s.makes===1)}
+   for(const result of state.drillResults||[])if(uuid.test(result.id)&&!cloudDrillResults.has(result.id)&&!pendingDrillResults.some(x=>x.id===result.id))pendingDrillResults.push(result);
    shotIds.clear();for(const id of current)shotIds.add(id);remember();
    if(pending.length)flush();
+   if(pendingDrillResults.length)flushDrillResults();
    if(window.PTCoachAccess?.isUnlocked())for(const p of state.players){if(!knownPlayers.has(p.id)){knownPlayers.add(p.id);sendPlayer(p)}}
  }
  let debounce=null;window.ptCloudQueueSave=()=>{clearTimeout(debounce);debounce=setTimeout(noticeChanges,80)};
+ let pendingDrillResults=[];try{const stored=JSON.parse(localStorage.getItem('pt_hub_pending_drill_results_v1')||'[]');pendingDrillResults=Array.isArray(stored)?stored.filter(x=>x&&typeof x==='object'&&uuid.test(x.id||'')):[]}catch{}
+ const rememberDrillResults=()=>localStorage.setItem('pt_hub_pending_drill_results_v1',JSON.stringify(pendingDrillResults));
+ async function flushDrillResults(){
+  if(busy||!pendingDrillResults.length)return;
+  busy=true;
+  try{while(pendingDrillResults.length){
+   const result=pendingDrillResults[0];
+   await request('drill_result','POST',{id:result.id,batch_id:result.batchId,player_id:result.playerId,result:result.result,practice_date:result.date,recorded_at:result.recordedAt});
+   cloudDrillResults.add(result.id);pendingDrillResults.shift();rememberDrillResults();
+  }}catch(e){label('Drill result saved on this device. Cloud retry pending: '+e.message,true)}finally{busy=false;if(pendingDrillResults.length)setTimeout(flushDrillResults,1000)}
+ }
  async function flush(){
    if(busy||!pending.length||!drills.size||!roster.size)return;
    busy=true;
@@ -53,8 +66,11 @@
       cloudShots.set(s.id,{made:Number(s.makes)===1});pending.shift();remember();label('Shot saved to the shared team database');
    }}catch(e){label('Shot saved on this device. Cloud retry pending: '+e.message,true)}finally{busy=false}}
  async function load(){
-  try{const data=await request('snapshot');let addedPlayers=0,addedShots=0;
+  try{const data=await request('snapshot');let addedPlayers=0,addedShots=0,addedResults=0;
    roster=new Map(data.players.map(p=>[p.id,p]));drills=new Map(data.drills.map(d=>[d.name.toLowerCase(),d.id]));
+   state.drillResults=Array.isArray(state.drillResults)?state.drillResults:[];
+   const existingResults=new Set((state.drillResults||[]).map(x=>x.id));
+   for(const result of data.drillResults||[]){cloudDrillResults.add(result.id);if(!existingResults.has(result.id)){state.drillResults.push({id:result.id,batchId:result.batch_id,playerId:result.player_id,date:result.practice_date,result:result.result,recordedAt:result.recorded_at||result.created_at});existingResults.add(result.id);addedResults++}}
    const byId=new Map(data.drills.map(d=>[d.id,d.name]));const existingP=new Set(state.players.map(p=>p.id));
    for(const p of data.players){if(!existingP.has(p.id)){state.players.push({id:p.id,name:p.full_name,number:p.jersey_number||'',grade:p.grade||'',position:p.position||''});existingP.add(p.id);knownPlayers.add(p.id);addedPlayers++}}
    // Database is authoritative for previously shared shooting statistics.
@@ -96,9 +112,9 @@
     }
     localStorage.setItem(cleanupKey,'done');
    }
-   if(addedPlayers||addedShots||removedShots)save();
+   if(addedPlayers||addedShots||addedResults||removedShots)save();
    if(!lastError)label('Shared database connected · '+data.players.length+' athletes · '+data.shots.length+' shots'+(addedPlayers||addedShots?' · refreshed':''));
-   flush();
+   noticeChanges();
   }catch(e){label('Shared data unavailable. Local recording continues; cloud sync will retry: '+e.message,true)}
  }
  // Coach Review's access-code gate is the only coach sign-in step.
