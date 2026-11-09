@@ -467,3 +467,108 @@ body:not([data-page="live-game"]) .profile-data th,body:not([data-page="live-gam
  body:not([data-page="live-game"]) th,body:not([data-page="live-game"]) td{padding:11px 12px}
  .athlete-layout{gap:20px}.athlete-actions{gap:12px}.lb-wall{gap:20px}.profile-chart-heading{gap:14px}.schedule-game{padding:18px;gap:16px}.drill-results-roster{gap:16px}.live-game-layout{gap:14px}
 }
+
+/* Phone-only Live Game guidance, including landscape phones. */
+.live-phone-notice{display:none}
+@media (max-width:600px), (max-height:500px) and (pointer:coarse){
+ .live-phone-notice{display:block;margin:0 0 18px;padding:20px 18px;border:2px solid #ef6b5c;border-left:6px solid #ef6b5c;border-radius:12px;background:#421c20;color:#fff}
+ .live-phone-notice strong{display:block;font-size:20px;line-height:1.35}
+ .live-phone-notice p{margin:10px 0 0;font-size:15px;line-height:1.5;color:#ffe3dd}
+}
+
+/* Navigation disclosure for phones only. */
+.phone-menu-toggle{display:none}
+@media (max-width:767px), (max-height:500px) and (pointer:coarse){
+ body>header{display:flex;flex-wrap:nowrap;gap:12px;align-items:center}
+ body>header .brand-wrap{width:auto;flex:1 1 0;min-width:0;gap:8px}
+ body>header .brand-wrap>div{min-width:0}
+ body>header h1{font-size:clamp(14px,4vw,20px)!important;line-height:1.2}
+ body>header small{font-size:8px;letter-spacing:.08em}
+ body>header .tag{display:none}
+ body>header .phone-menu-toggle{display:flex;align-items:center;justify-content:center;flex:0 0 44px;width:44px;height:44px;min-height:44px;margin-left:auto;padding:9px;border:1px solid #667080;background:#202733;border-radius:10px;color:#fff}
+ .phone-menu-enabled>nav[aria-label="Main navigation"]{display:none!important}
+ .phone-menu-enabled.phone-menu-open>nav[aria-label="Main navigation"]{display:grid!important;grid-template-columns:minmax(0,1fr);gap:8px;padding:12px 16px;overflow:visible}
+ .phone-menu-enabled>nav[aria-label="Main navigation"] a{justify-content:flex-start;text-align:left;min-height:46px;padding:12px 16px;font-size:15px}
+}
+
+/* Shared report placeholder and player labels. */
+.live-court-surface{display:grid;grid-template-rows:auto auto;gap:8px;min-width:0}
+.live-court-surface>.row{align-items:center;justify-content:space-between;gap:8px}
+.live-court-card{grid-template-rows:auto auto}
+.live-court-score{flex-wrap:wrap;gap:12px}
+#liveGenerateReport{min-height:40px;padding:9px 13px;font-size:12px;white-space:nowrap}
+.live-tablet-teams,.live-tablet-score{display:none}
+/* iPad/tablet courtside layout; phones and mouse-driven laptops retain theirs. */
+@media (min-width:768px) and (min-height:600px) and (pointer:coarse){
+ body[data-page="live-game"] main{max-width:1400px;padding-left:14px!important;padding-right:14px!important}
+ .live-game-heading{grid-template-columns:1fr auto;min-height:34px;margin-bottom:10px}
+ .live-game-heading label{grid-column:2;width:230px}
+ .live-game-heading .live-score{grid-column:1;grid-row:1;text-align:left;font-size:17px}
+ .live-game-layout{grid-template-columns:minmax(0,1fr) minmax(0,1.38fr);gap:12px;align-items:stretch}
+ .live-court-card{display:contents}
+ .live-court-surface{grid-column:1;grid-row:1;padding:12px;border:1px solid #4c5868;border-radius:12px;background:#151e29;grid-template-rows:auto minmax(0,1fr)}
+ .live-court-surface h3{font-size:15px}
+ .live-court{width:100%;height:100%;max-height:none;min-height:300px;background:#062135}
+ .live-control-box{grid-column:2;grid-row:1;grid-template-rows:auto 1fr;border-color:#4c5868;overflow:hidden}
+ .live-players-panel{position:relative;padding:10px;gap:8px;grid-template-rows:auto auto auto}
+ .live-players-panel>.live-panel-heading{min-height:27px;padding-right:110px}
+ .live-panel-heading h3{font-size:14px}
+ .live-team-headings,.live-team-headings>div{display:contents}
+ .live-team-headings strong{display:none}
+ #liveAddOpponent{position:absolute;right:10px;top:10px;min-height:27px;padding:5px 8px;font-size:11px}
+ .live-tablet-teams{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+ .live-tablet-teams button{min-height:36px;padding:7px 10px;font-size:13px;background:linear-gradient(#384958,#1c2935);border:1px solid #526477}
+ .live-tablet-teams button[aria-pressed="true"]{background:linear-gradient(#ed3c50,#b71931);border-color:#fa6a79}
+ #livePlayerSlots{grid-template-columns:repeat(5,minmax(0,1fr));grid-template-rows:none;grid-auto-rows:minmax(78px,auto);gap:6px;min-height:78px}
+ #liveGamePage[data-tablet-team="pt"] [data-live-team-slot="opponent"],#liveGamePage[data-tablet-team="opponent"] [data-live-team-slot="pt"]{display:none}
+ #livePlayerSlots .live-slot-dropdown{min-height:78px}
+ #livePlayerSlots .live-slot-dropdown select{min-height:78px!important;padding:0 4px;border-radius:9px!important;background:linear-gradient(#293846,#111b25);color:transparent!important;-webkit-text-fill-color:transparent}
+ #livePlayerSlots .live-slot-dropdown select option{color:#fff!important;-webkit-text-fill-color:#fff;background:#151a22}
+ #livePlayerSlots .live-player-activate{right:1px;clip-path:polygon(0 0,calc(100% - 25px) 0,calc(100% - 25px) 34px,100% 34px,100% 100%,0 100%);padding:7px 3px;white-space:normal;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:5px;text-align:center;background:transparent;border-radius:8px 0 0 8px;font-size:11px;line-height:1.2;overflow:hidden}
+ #livePlayerSlots .live-player-number{align-self:flex-start;width:calc(100% - 22px);text-align:center;font-size:15px;font-weight:850;line-height:1.2}
+ #livePlayerSlots .live-player-name{font-size:11px;font-weight:650;overflow-wrap:normal}
+ #livePlayerSlots .live-player-arrow{right:3px;top:20px;width:19px;height:19px;font-size:13px}
+ #livePlayerSlots .selected select{background:linear-gradient(#ed3c50,#9b182a)!important;border-color:#ff8994!important;box-shadow:0 0 0 1px #d82d43}
+ #livePlayerSlots .selected .live-player-activate{background:transparent}
+ .live-stats-panel{padding:10px;gap:8px;border-top:1px solid #4c5868;grid-template-rows:auto 1fr auto}
+ .live-stats-panel>.live-panel-heading{flex-wrap:wrap;gap:4px}
+ .live-stats-panel .live-panel-heading p{font-size:11px;white-space:normal;text-align:left}
+ #liveStatButtons{grid-template-columns:repeat(4,minmax(0,1fr));grid-template-rows:repeat(4,minmax(46px,auto));gap:7px}
+ #liveStatButtons button{font-size:12px;line-height:1.2;padding:8px 5px;min-height:46px!important;background:linear-gradient(#364756,#1c2935);border-color:#516274}
+ #liveStatButtons .live-make{background:linear-gradient(#0c9d58,#086337);border-color:#23b875}
+ #liveStatButtons .live-miss{background:linear-gradient(#e63045,#a10b2b);border-color:#fa6475}
+ #liveStatButtons [data-live-stat="FOUL"],#liveStatButtons [data-live-stat="FAST_TWO"]{grid-column:span 2}
+ .live-last-entry{min-height:20px;display:block}
+ .live-last-entry p{font-size:11px}
+ #liveScoreFooter{grid-column:1/-1;grid-row:2;display:flex;flex-wrap:wrap;gap:18px;justify-content:flex-start;align-items:center;padding:12px 16px;border:1px solid #4c5868;border-radius:12px;background:#121c25;min-height:72px}
+ #liveScoreFooter>span{font-size:14px;font-weight:750;color:white}
+ #liveScoreFooter>#liveGameScore{display:none}
+ .live-tablet-score{display:flex;gap:24px;align-items:center;flex:1}
+ .live-tablet-score>div{display:flex;flex-direction:column;align-items:center;gap:3px;min-width:70px}
+ .live-tablet-score span{font-size:12px;color:#d5dfeb}
+ .live-tablet-score strong{font-size:24px;line-height:1.1}
+ #liveScoreFooter #liveUndo,#liveScoreFooter #liveGenerateReport{min-height:42px;min-width:85px;font-size:12px;padding:9px 12px}
+}
+
+/* On iPad, use the full width with the court above the controls. */
+@media (min-width:768px) and (min-height:600px) and (pointer:coarse){
+ body[data-page="live-game"] main{width:100%;max-width:none;padding-left:12px!important;padding-right:12px!important}
+ .live-game-layout{grid-template-columns:minmax(0,1fr);gap:14px}
+ .live-court-surface{grid-column:1;grid-row:1;padding:12px;grid-template-rows:auto auto}
+ .live-court{display:block;width:100%;height:clamp(300px,46dvh,560px);min-height:0;max-height:none}
+ .live-control-box{grid-column:1;grid-row:2;width:100%;grid-template-rows:auto auto}
+ .live-players-panel,.live-stats-panel{padding:14px;gap:12px}
+ #livePlayerSlots{gap:10px;grid-auto-rows:minmax(78px,auto)}
+ #liveStatButtons{gap:10px;grid-template-rows:repeat(4,minmax(52px,auto))}
+ #liveStatButtons button{min-height:52px!important;font-size:14px;padding:10px 12px}
+ #liveScoreFooter{grid-column:1;grid-row:3;width:100%}
+}
+
+/* Larger iPad player dropdown targets; the rest of each card selects its player. */
+@media (min-width:768px) and (min-height:600px) and (pointer:coarse){
+ #livePlayerSlots .live-player-arrow{right:5px;top:27px;width:40px;height:40px;font-size:24px;border-width:2px}
+ #livePlayerSlots .live-player-activate{clip-path:polygon(0 0,calc(100% - 48px) 0,calc(100% - 48px) 52px,100% 52px,100% 100%,0 100%)}
+ #livePlayerSlots .live-player-number{width:calc(100% - 48px);min-height:40px;display:flex;align-items:center;justify-content:center}
+ #livePlayerSlots{grid-auto-rows:minmax(94px,auto)}
+ #livePlayerSlots .live-slot-dropdown,#livePlayerSlots .live-slot-dropdown select{min-height:94px!important}
+}
