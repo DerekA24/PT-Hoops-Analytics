@@ -231,7 +231,7 @@ function coachEdit(id,remove){
   if(Number(current.makes)===made&&Number(current.attempts)===made+missed){close();toast('No changes needed');return}
   const old={...current};current.makes=made;current.attempts=made+missed;
   state.corrections.push({id:uid(),at:new Date().toISOString(),action:'Edit shot totals',player:playerName(old.playerId),playerId:old.playerId,recordId:old.id,reason:'Coach corrected made and missed totals',before:describeShot(old),after:describeShot(current),beforeRecord:old,afterRecord:{...current}});
-  save();close();toast('Coach correction saved locally');
+  save();if(typeof window.ptCloudQueueSave==='function')window.ptCloudQueueSave();close();toast('Coach correction saved locally and queued for cloud sync');
  });
  document.body.appendChild(overlay);overlay.querySelector('#coachCountMade').focus();
 }

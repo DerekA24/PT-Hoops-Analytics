@@ -13,7 +13,7 @@
  const badge=document.getElementById('storageStatus');
  const label=(msg,error=false)=>{lastError=error?msg:'';status.textContent=msg;status.classList.toggle('pt-error',error);if(badge)badge.textContent=error?'Cloud save needs attention':'Shared team data · Supabase';};
  function request(action,method='GET',body=null,token=''){
-   return fetch(endpoint+'?action='+encodeURIComponent(action),{method,headers:{'Content-Type':'application/json',...(token?{'X-Coach-Code':token}:{})},...(body?{body:JSON.stringify(body)}:{})}).then(async r=>{let v;try{v=await r.json()}catch{throw Error('Cloud service unavailable')}if(!r.ok)throw Error(v.error||'Cloud request failed');return v});
+   return fetch(endpoint+'?action='+encodeURIComponent(action),{method,headers:{'Content-Type':'application/json',...(token?{'X-Coach-Access-Code':token}:{}),...(body?.recorded_at?{}:{})},...(body?{body:JSON.stringify(body)}:{})}).then(async r=>{let v;try{v=await r.json()}catch{throw Error('Cloud service unavailable')}if(!r.ok)throw Error(v.error||'Cloud request failed');return v});
  }
  // Secure deletion bridge for Coach Review. Never claim success before Supabase confirms.
  window.ptCloudHasShot=(id)=>cloudShots.has(id);

@@ -38,7 +38,7 @@ DELETE `?action=shot`: coach deletion with valid access code.
 * Some client analytics and schedules may use browser storage; not all website sections are established as fully cloud-backed.
 * After cloud deletions, ensure cached analytics fully reconcile on every device.
 * Other devices may need a refresh to see newly recorded shots.
-* The frontend can include a shared Coach Review access code. Treat it as nonsecret and rotate it when school administrators take control.
+* Coach Review uses a local access code; unlocked edit/delete requests send that code to the Edge Function, which stores only its SHA-256 hash. Treat the code as nonsecret and rotate it when school administrators take control.
 * Never commit service-role keys, database passwords, coach passwords, student data exports, or personal credentials to GitHub.
 
 ## Verification before any production release

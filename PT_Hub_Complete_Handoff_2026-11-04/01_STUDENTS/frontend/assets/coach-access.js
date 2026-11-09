@@ -4,7 +4,7 @@
 const KEY='pt-coach-local-access-v2';
 const DEFAULT_CODE='232323',CODE_VERSION='default-232323-v1';
 const $=id=>document.getElementById(id);
-let unlocked=false, mode='unlock';
+let unlocked=false, mode='unlock', sessionCode='';
 const record=()=>{try{const saved=JSON.parse(localStorage.getItem(KEY)||'null');return saved?.version===CODE_VERSION&&typeof saved.salt==='string'&&typeof saved.hash==='string'?saved:null}catch{return null}};
 const salt=()=>{let a=new Uint8Array(16);if(window.crypto&&crypto.getRandomValues)crypto.getRandomValues(a);else a.forEach((_,i)=>a[i]=Math.random()*256|0);return Array.from(a,x=>x.toString(16).padStart(2,'0')).join('')};
 async function digest(code,s){
@@ -14,8 +14,7 @@ async function digest(code,s){
 }
 window.PTCoachAccess={
  isUnlocked:()=>unlocked,
- // Browser-specific code overrides still unlock the same shared coach access.
- cloudCredential:()=>unlocked?DEFAULT_CODE:null,
+ cloudCredential:()=>unlocked?sessionCode:null,
  verify:async code=>{const saved=record();return saved?await digest(code,saved.salt)===saved.hash:code===DEFAULT_CODE}};
 if(!document.getElementById('coachGate'))return;
 function show(modeChoice='unlock'){
@@ -49,15 +48,15 @@ $('coachCodeForm').addEventListener('submit',async e=>{
   if(code.length<6)return fail('Use at least 6 characters.');
   if(code!==$('gateConfirm').value)return fail('Codes do not match.');
   const s=salt();localStorage.setItem(KEY,JSON.stringify({version:CODE_VERSION,salt:s,hash:await digest(code,s)}));
-  unlocked=true;
+  sessionCode=code;unlocked=true;
   if(changing){close();return;}displayCoach();return;
  }
  if(!await matches(code))return fail('Incorrect access code.');
- unlocked=true;displayCoach();
+ sessionCode=code;unlocked=true;displayCoach();
  }catch(err){fail('Could not access code storage: '+err.message)}
 });
 $('coachChangeCode').addEventListener('click',()=>show('change'));
-$('coachLock').addEventListener('click',()=>{unlocked=false;close();$('coachTools').hidden=true;$('coachLocked').hidden=false;window.scrollTo(0,0)});
-window.addEventListener('pagehide',()=>{unlocked=false;$('coachTools').hidden=true;$('coachLocked').hidden=false});
+$('coachLock').addEventListener('click',()=>{unlocked=false;sessionCode='';close();$('coachTools').hidden=true;$('coachLocked').hidden=false;window.scrollTo(0,0)});
+window.addEventListener('pagehide',()=>{unlocked=false;sessionCode='';$('coachTools').hidden=true;$('coachLocked').hidden=false});
 show('unlock');
 })();
