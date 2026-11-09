@@ -161,6 +161,17 @@ function dailyChampionWins(){
  }
  return [...wins].map(([id,count])=>({id,count})).sort((a,b)=>b.count-a.count||playerName(a.id).localeCompare(playerName(b.id)));
 }
+// Each leaderboard expands independently; filters and live refreshes preserve it.
+const expandedLeaderboards=new Set();
+function leaderboardRows(key,rows){return expandedLeaderboards.has(key)?rows:rows.slice(0,5)}
+function leaderboardToggle(key,count,label){return count>5?`<button type="button" data-leaderboard-toggle="${esc(key)}" aria-expanded="${expandedLeaderboards.has(key)}" aria-label="${expandedLeaderboards.has(key)?'See less':'See more'}: ${esc(label)}">${expandedLeaderboards.has(key)?'See less':'See more'}</button>`:''}
+document.addEventListener('click',e=>{
+ const button=e.target.closest('[data-leaderboard-toggle]');if(!button)return;
+ const key=button.dataset.leaderboardToggle;
+ if(expandedLeaderboards.has(key))expandedLeaderboards.delete(key);else expandedLeaderboards.add(key);
+ renderLeaderboards();window.renderOtherLeaderboards?.();
+ [...document.querySelectorAll('[data-leaderboard-toggle]')].find(el=>el.dataset.leaderboardToggle===key)?.focus({preventScroll:true});
+});
 function renderLeaderboards(){if(!$('leaderboards'))return;
  const all=visibleLeaderboardDrills();syncFilterSelect('lbCategory',all);
  const cat=$('lbCategory').value,scope=$('lbScope').value;
@@ -169,14 +180,13 @@ function renderLeaderboards(){if(!$('leaderboards'))return;
  const view=leaderboardRowsFor(cat),total=view.total;
  $('lbSummary').innerHTML=[['Made',total.makes],['Attempts',total.attempts],['Shooting %',pct(total.makes,total.attempts)],['Qualified Athletes',view.rows.length]].map(([name,value])=>`<div class="card"><small>${esc(name)}</small><div class="stat">${value}</div></div>`).join('');
  const title=cat||'All Shooting Drills';
- const rows=view.rows.slice(0,20).map((x,i)=>`<tr><td>${i+1}</td><td>${esc(playerName(x.id))}</td><td>${x.makes}</td><td>${x.attempts}</td><td>${pct(x.makes,x.attempts)}</td><td><button type="button" data-lb-edit="${esc(x.id)}">Coach Edit</button></td></tr>`);
  $('lbWall').innerHTML=all.map(drill=>{
    const d=leaderboardRowsFor(drill),selected=cat===drill;
-   const ranked=d.rows.slice(0,20).map((x,i)=>`<tr class="${i<3?'lb-top':''}"><td>${i===0?'★ 1':i+1}</td><td title="${esc(playerName(x.id))}">${esc(playerName(x.id))}</td><td>${x.makes}/${x.attempts}</td><td>${pct(x.makes,x.attempts)}</td></tr>`).join('');
-   return `<article class="lb-panel ${selected?'selected':''}"><div class="lb-panel-head"><strong>${esc(drillLabel(drill))}</strong><button type="button" data-lb-feature="${esc(drill)}">View</button></div><div class="lb-panel-meta">${d.rows.length} qualified · ${d.total.attempts} shots · MIN 20 · TOP 20</div>${ranked?`<table><thead><tr><th>#</th><th>Athlete</th><th>M/A</th><th>%</th></tr></thead><tbody>${ranked}</tbody></table>`:'<p class="lb-empty">No athletes with 20 attempts yet</p>'}</article>`;
+   const ranked=leaderboardRows('shooting:'+drill,d.rows).map((x,i)=>`<tr class="${i<3?'lb-top':''}"><td>${i===0?'★ 1':i+1}</td><td title="${esc(playerName(x.id))}">${esc(playerName(x.id))}</td><td>${x.makes}/${x.attempts}</td><td>${pct(x.makes,x.attempts)}</td></tr>`).join('');
+   return `<article class="lb-panel ${selected?'selected':''}"><div class="lb-panel-head"><strong>${esc(drillLabel(drill))}</strong>${leaderboardToggle('shooting:'+drill,d.rows.length,drillLabel(drill))}</div><div class="lb-panel-meta">${d.rows.length} qualified · ${d.total.attempts} shots · MIN 20 · ${expandedLeaderboards.has('shooting:'+drill)?'All athletes':'Top 5'}</div>${ranked?`<table><thead><tr><th>#</th><th>Athlete</th><th>M/A</th><th>%</th></tr></thead><tbody>${ranked}</tbody></table>`:'<p class="lb-empty">No athletes with 20 attempts yet</p>'}</article>`;
  }).join('');
  const winners=dailyChampionWins();
- const dest=$('lbChampions');if(dest)dest.innerHTML=`<div class="lb-feature-title">DAILY SHOOTING CHAMPIONS</div><p class="muted">One win for finishing first in shooting percentage in a drill on a practice date with at least 20 attempts. Ties share a win. Counts recalculate after coach corrections.</p>`+(winners.length?table(['Rank','Athlete','Daily Shooting Wins'],winners.slice(0,20).map((x,i)=>`<tr><td>${i+1}</td><td>${esc(playerName(x.id))}</td><td><strong>${x.count}</strong></td></tr>`)):'<p class="muted">Daily champions appear when athletes record at least 20 attempts in a drill on the same date.</p>');
+ const dest=$('lbChampions');if(dest)dest.innerHTML=`<div class="drill-wins-heading"><div class="lb-feature-title">DAILY SHOOTING CHAMPIONS</div>${leaderboardToggle('shooting:champions',winners.length,'Daily Shooting Champions')}</div><p class="muted">One win for finishing first in shooting percentage in a drill on a practice date with at least 20 attempts. Ties share a win. Counts recalculate after coach corrections.</p>`+(winners.length?table(['Rank','Athlete','Daily Shooting Wins'],leaderboardRows('shooting:champions',winners).map((x,i)=>`<tr><td>${i+1}</td><td>${esc(playerName(x.id))}</td><td><strong>${x.count}</strong></td></tr>`)):'<p class="muted">Daily champions appear when athletes record at least 20 attempts in a drill on the same date.</p>');
 }
 function coachRows(){const p=$('coachPlayer').value,t=$('coachCategory').value,q=String($('coachPlayerSearch')?.value||'').trim().toLowerCase();return state.shooting.filter(x=>(!p||x.playerId===p)&&(!q||playerName(x.playerId).toLowerCase().includes(q)||String(state.players.find(player=>player.id===x.playerId)?.number??'').toLowerCase()===q.replace(/^#/,''))&&dateInRange(x.date,'coach')&&(!t||x.type===t)).slice().sort((a,b)=>String(b.recordedAt||b.date).localeCompare(String(a.recordedAt||a.date)))}
 function practiceTimestamp(record){
@@ -251,7 +261,7 @@ if($('coachExport')&&$('export')){$('coachExport').onclick=()=>$('export').click
 if($('coachImport')){$('coachImport').addEventListener('change',async e=>{const f=e.target.files?.[0];if(!f)return;try{const incoming=JSON.parse(await f.text());if(!Array.isArray(incoming.players)||!Array.isArray(incoming.shooting))throw Error('Not a recognized basketball backup');if(!confirm('Import this basketball backup into this browser? Existing local records will be replaced.'))return;state={...incoming,players:incoming.players,games:Array.isArray(incoming.games)?incoming.games:[],shooting:incoming.shooting,court:Array.isArray(incoming.court)?incoming.court:[],schedule:Array.isArray(incoming.schedule)?incoming.schedule:[],corrections:Array.isArray(incoming.corrections)?incoming.corrections:[],hiddenBoards:Array.isArray(incoming.hiddenBoards)?incoming.hiddenBoards:[]};save();toast('Backup imported. Athlete and drill filters restored.')}catch(err){alert('Could not import backup: '+err.message)}finally{e.target.value=''}});}
 for(const id of ['lbScope','lbCategory','lbMetric','lbMin'])$(id)?.addEventListener('change',()=>renderLeaderboards());
 if($('lbMin')){$('lbMin').addEventListener('input',()=>renderLeaderboards());}
-if($('lbWall')&&$('lbCategory')){$('lbWall').addEventListener('click',e=>{const b=e.target.closest('[data-lb-feature]');if(!b)return;$('lbCategory').value=b.dataset.lbFeature;renderLeaderboards();document.querySelector('#lbWall .selected')?.scrollIntoView({behavior:'smooth',block:'nearest'});});}
+
 for(const id of ['athleteDate'])if($(id))$(id).value=today();
 if($('coach')){const query=new URLSearchParams(location.search);$('coachPlayer').value=query.get('player')||'';$('coachStartDate').value=query.get('start')||query.get('date')||'';$('coachEndDate').value=query.get('end')||query.get('date')||'';syncFilterSelect('coachCategory',getDrillTypes());const drill=query.get('drill')||'';$('coachCategory').value=drill.startsWith('Custom: ')?'Custom Drill':drill;}
 for(const id of ['lbStartDate','lbEndDate'])$(id)?.addEventListener('change',()=>{$('lbScope').value='range';renderLeaderboards()});

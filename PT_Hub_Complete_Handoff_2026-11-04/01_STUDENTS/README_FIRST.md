@@ -59,3 +59,14 @@ Schedule additions, edits, schedule CSV imports, and Hudl uploads prompt for the
 Coach Review requires only the coach access code (232323 by default). Each individual make or miss has a Delete action under Individual Submissions. The same action also deletes an entire aggregate submission; corrections and deletions remain in the local Correction History. Cloud deletions must succeed before the local record is removed.
 
 Cloud coach operations use the `X-Coach-Code` header; Supabase account email/password sign-in is no longer used by the website. Deploy the frontend and updated Edge Function together. From `01_STUDENTS`, run `supabase functions deploy pt-hub --project-ref jbznaeunhtqgagnqweqw --no-verify-jwt` using the project administrator's existing CLI access. The checked-in `supabase/config.toml` also disables gateway JWT verification for this function, which validates the coach code internally. This deployment step is for administrators, not a coach login step.
+
+## Live Game reports
+Generate Report opens a read-only snapshot of the selected game. The report has a portrait summary with team stats, both player box scores, and Quick Insights, followed by team shot charts and zone tables. Use Print / Save PDF in the report toolbar. The summary fits the front and shot charts fit the back of one sheet: choose portrait, double-sided printing, and flip on the long edge. Generating a report does not edit the game or create demo stats in team data.
+
+Calculations are in `frontend/assets/game-report-data.js`; rendering and print styles are in `game-report.js` and `game-report.css`. Imported player totals are supplemented only by later live events. Imported box scores do not provide shot locations. Missing metrics remain unavailable; second-chance points require explicit data. Fast-break points are used instead of the retired points-off-turnovers metric.
+
+Quick Insights uses the open-weight SmolLM2-135M-Instruct model in a browser worker through Transformers.js 3.8.1. The first run downloads roughly 137 MB of quantized model weights from Hugging Face, plus the runtime; the browser can cache these files. No inference API key is needed, and game statistics are processed on the device. The model chooses among verified statistical observations rather than inventing numbers or missing possessions. If downloading or inference fails, the report labels its fallback as a stat-based summary and offers Retry Quick Insights. The report and printing remain available.
+
+Model: https://huggingface.co/onnx-community/SmolLM2-135M-Instruct-ONNX-MHA
+Runtime: https://huggingface.co/docs/transformers.js
+Report calculation tests: `node --test tests/game-report.test.cjs` from the repository root.

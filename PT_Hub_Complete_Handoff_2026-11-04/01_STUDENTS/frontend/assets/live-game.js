@@ -4,6 +4,8 @@
  const actions=[
   ['TWO_M','2pt Make'],['TWO_X','2pt Miss'],['THREE_M','3pt Make'],['THREE_X','3pt Miss'],['FT_M','Free Throw Make'],['FT_X','Free Throw Miss'],['OREB','ORB'],['DREB','DRB'],['STL','STL'],['AST','AST'],['TO','TO'],['BLK','BLK'],['FOUL','Foul'],['FAST_TWO','Fast Break 2']
  ];
+ const tablet=matchMedia('(min-width:768px) and (min-height:600px) and (pointer:coarse)');
+ let tabletTeam='pt';
  const selectionKey='pt-live-current-game-v1';let selection=localStorage.getItem(selectionKey)||'',point={x:250,y:300},busy=false;
  const points=event=>({TWO_M:2,THREE_M:3,FT_M:1})[event.type]||0;
  const normalize=value=>String(value||'').toLowerCase().replace(/[^a-z0-9]/g,'');
@@ -39,6 +41,9 @@
   const list=entries();if(!list.some(e=>e.key===selection))selection='';
   $('liveGameSelector').innerHTML='<option value="">Select a game</option>'+list.map(entry=>{const item=entry.schedule||entry.game;return `<option value="${esc(entry.key)}">${esc(item.date||'Date TBD')} · ${item.location==='Away'?'@':'vs'} ${esc(item.opponent||'Opponent TBD')}${item.time?' · '+esc(item.time):''}</option>`}).join('');$('liveGameSelector').value=selection;
   const entry=selectedEntry(),game=entry?.game,opponent=(entry?.schedule||game)?.opponent||'Opponent',active=activePlayer(game);
+  $('liveTabletOpponent').textContent=opponent;$('liveScoreOpponent').textContent=opponent;$('livePtScore').textContent=score(game,'pt');$('liveOpponentScore').textContent=score(game,'opponent');
+  $('liveGamePage').dataset.tabletTeam=tabletTeam;
+  for(const button of document.querySelectorAll('[data-live-team]')){button.setAttribute('aria-pressed',String(button.dataset.liveTeam===tabletTeam));button.disabled=!entry}
   $('liveOpponentName').textContent=opponent;$('liveAddOpponent').disabled=!entry;
   $('liveGameTeams').textContent=`Park Tudor vs ${opponent}`;
   $('liveGameScore').textContent=`${score(game,'pt')} \u2013 ${score(game,'opponent')}`;
@@ -46,15 +51,30 @@
   const saved=game?.liveCourtPoint;if(saved&&Number.isFinite(saved.x)&&Number.isFinite(saved.y))point={x:Math.max(12,Math.min(488,saved.x)),y:Math.max(12,Math.min(458,saved.y))};updateDot();
   $('livePlayerSlots').innerHTML=Array.from({length:5},(_,slot)=>['pt','opponent'].map(team=>{
    const lineup=slots(game,team),id=lineup[slot],players=roster(game,team),player=players.find(p=>p.id===id),isActive=active?.team===team&&active.slot===slot;
-   return `<div class="live-slot-dropdown ${isActive?'selected':''}" data-live-slot="${team}:${slot}"><button type="button" class="live-player-activate" data-live-activate="${team}:${slot}" aria-pressed="${!!isActive}" title="${player?esc(playerLabel(player)):'Use the arrow to choose a player'}" ${!entry||!player?'disabled':''}>${player?esc(playerLabel(player)):'Select player'}</button><span class="live-player-arrow" aria-hidden="true">&#9662;</span><select data-live-player="${team}:${slot}" aria-label="Change ${team==='pt'?'Park Tudor':esc(opponent)} player ${slot+1}" aria-describedby="liveSelectedPlayer" ${!entry?'disabled':''}><option value="">Select player</option>${players.map(p=>`<option value="${esc(p.id)}" ${p.id===id?'selected':''} ${lineup.some((value,i)=>i!==slot&&value===p.id)?'disabled':''}>${esc(playerLabel(p))}</option>`).join('')}</select></div>`;
+   return `<div class="live-slot-dropdown ${isActive?'selected':''}" data-live-slot="${team}:${slot}" data-live-team-slot="${team}"><button type="button" class="live-player-activate" data-live-activate="${team}:${slot}" aria-pressed="${!!isActive}" title="${player?esc(playerLabel(player)):'Use the arrow to choose a player'}" ${!entry||!player?'disabled':''}>${player?'<span class="live-player-number">'+(player.number!==undefined&&player.number!==''?'#'+esc(player.number):'')+'</span> <span class="live-player-name">'+esc(player.name)+'</span>':'Select player'}</button><span class="live-player-arrow" aria-hidden="true">&#9662;</span><select data-live-player="${team}:${slot}" aria-label="Change ${team==='pt'?'Park Tudor':esc(opponent)} player ${slot+1}" aria-describedby="liveSelectedPlayer" ${!entry?'disabled':''}><option value="">Select player</option>${players.map(p=>`<option value="${esc(p.id)}" ${p.id===id?'selected':''} ${lineup.some((value,i)=>i!==slot&&value===p.id)?'disabled':''}>${esc(playerLabel(p))}</option>`).join('')}</select></div>`;
   }).join('')).join('');
   $('liveRosterNote').innerHTML=state.players.length?'':'Add Park Tudor players in <a href="coach-review.html#roster">Coach Review → Roster</a>.';
   $('liveSelectedPlayer').textContent=active?`${active.team==='pt'?'Park Tudor':opponent} · ${playerLabel(active.player)}`:entry?'Choose a player above.':'Select a game and player.';
   $('liveStatButtons').innerHTML=actions.map(([type,label])=>`<button type="button" data-live-stat="${type}" ${!active||busy?'disabled':''} class="${type.endsWith('_M')||type==='FAST_TWO'?'live-make':type.endsWith('_X')?'live-miss':''}">${label}</button>`).join('');
   const last=(game?.events||[]).at(-1),lastPlayer=last?roster(game,last.team==='opponent'?'opponent':'pt').find(p=>p.id===last.playerId):null;
   $('liveUndo').disabled=!last||last.source!=='live-game';
+  $('liveGenerateReport').disabled=!entry;
   $('liveLastEntry').textContent=last?.source==='live-game'?`Saved: ${last.team==='opponent'?opponent:'Park Tudor'} · ${lastPlayer?playerLabel(lastPlayer):last.playerName||'Player'} · ${last.label||last.type} · (${last.x}, ${last.y})`:'';
  }
+ function arrangeTabletFooter(){
+  const destination=tablet.matches?$('liveScoreFooter'):document.querySelector('.live-last-entry');
+  if($('liveUndo').parentElement!==destination)destination.insertBefore($('liveUndo'),tablet.matches?$('liveGenerateReport'):null);
+ }
+ document.querySelector('.live-tablet-teams').addEventListener('click',e=>{
+  const button=e.target.closest('[data-live-team]');if(!button||button.disabled)return;
+  tabletTeam=button.dataset.liveTeam;
+  const game=selectedEntry()?.game;
+  if(game&&game.liveActive?.team!==tabletTeam){
+   const lineup=slots(game,tabletTeam),slot=lineup.findIndex(id=>roster(game,tabletTeam).some(p=>p.id===id));
+   game.liveActive=slot>=0?{team:tabletTeam,slot,playerId:lineup[slot]}:null;save();
+  }else render();
+ });
+ tablet.addEventListener('change',arrangeTabletFooter);arrangeTabletFooter();
  function setLineup(game,team,slot,id){
   const lineup=slots(game,team);if(id&&(!roster(game,team).some(p=>p.id===id)||lineup.some((value,i)=>i!==slot&&value===id)))return false;
   game.liveLineups={pt:slots(game,'pt'),opponent:slots(game,'opponent'),...game.liveLineups};game.liveLineups[team]=lineup;lineup[slot]=id;
@@ -91,6 +111,22 @@
   const game=selectedEntry()?.game,last=game?.events?.at(-1);if(!last||last.source!=='live-game')return;
   game.events.pop();game.teamScore=last.scoreBefore?.pt??Math.max(0,score(game,'pt')-(last.team==='opponent'?0:points(last)));game.opponentScore=last.scoreBefore?.opponent??Math.max(0,score(game,'opponent')-(last.team==='opponent'?points(last):0));game.oppScore=game.opponentScore;save();
  };
+ $('liveGenerateReport').onclick=()=>{
+  const entry=selectedEntry();if(!entry)return toast('Select a game before generating a report.');
+  const game={...(entry.schedule||{}),...(entry.game||{}),events:entry.game?.events||[]};
+  const id=uid(),snapshot={game,players:state.players,createdAt:new Date().toISOString()};
+  try{
+   // Keep a few report snapshots for reload/printing without changing game records.
+   const old=Object.keys(localStorage).filter(key=>key.startsWith('pt-game-report-')).sort((a,b)=>{
+    try{return String(JSON.parse(localStorage.getItem(a)).createdAt).localeCompare(String(JSON.parse(localStorage.getItem(b)).createdAt))}catch{return 0}
+   });
+   while(old.length>=5)localStorage.removeItem(old.shift());
+   localStorage.setItem('pt-game-report-'+id,JSON.stringify(snapshot));
+  }catch{return toast('Could not prepare the report. Free some browser storage and try again.');}
+  const url='game-report.html?report='+encodeURIComponent(id);
+  const reportWindow=window.open(url,'_blank');
+  if(reportWindow)reportWindow.opener=null;else location.assign(url);
+ };
  $('liveAddOpponent').onclick=()=>{if(!selectedEntry())return;$('liveOpponentForm').reset();$('liveOpponentError').textContent='';$('liveOpponentDialog').showModal()};
  $('liveCloseOpponent').onclick=()=>$('liveOpponentDialog').close();
  $('liveOpponentForm').onsubmit=e=>{
@@ -98,7 +134,7 @@
   const players=roster(game,'opponent');if(number!==''&&players.some(p=>p.number!==''&&Number(p.number)===Number(number))){$('liveOpponentError').textContent='That jersey number is already on this opponent roster.';return}
   const player={id:'opponent-'+uid(),name,number};game.opponentPlayers=[...players,player];
   const lineup=slots(game,'opponent'),empty=lineup.indexOf('');if(empty>=0)setLineup(game,'opponent',empty,player.id);
-  save();$('liveOpponentDialog').close();
+  tabletTeam='opponent';save();$('liveOpponentDialog').close();
  };
  window.renderLiveGame=render;window.seedSeasonSchedule?.();render();
 })();

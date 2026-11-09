@@ -89,7 +89,7 @@
   const score=row=>drillWinsMetric==='pct'?row.wins/(row.wins+row.losses):row.wins;
   const rows=[...totals.values()].sort((a,b)=>score(b)-score(a)||playerName(a.id).localeCompare(playerName(b.id)));
   let lastScore=null,lastRank=0;
-  $('otherDrillWins').innerHTML='<div class="drill-wins-heading"><h3 class="lb-feature-title">DRILL WINS</h3><div class="drill-wins-toggle" role="group" aria-label="Rank drill wins by">'+[['wins','Total Wins'],['pct','Win %']].map(([value,label])=>`<button type="button" data-drill-metric="${value}" aria-pressed="${drillWinsMetric===value}">${label}</button>`).join('')+'</div></div><p class="muted">Ranked by '+(drillWinsMetric==='pct'?'win percentage (wins divided by wins + losses)':'total wins')+'. Ties share a rank. Uses the selected date range. Minimum Games applies only to game stats above.</p>'+(rows.length?table(['Rank','Player','Drill Wins','Drill Losses','Win %'],rows.map((row,i)=>{const value=score(row),rank=value===lastScore?lastRank:i+1;lastScore=value;lastRank=rank;return `<tr class="${rank<=3?'lb-top':''}"><td>${rank}</td><td>${esc(playerName(row.id))}</td><td><strong>${row.wins}</strong></td><td>${row.losses}</td><td>${(100*row.wins/(row.wins+row.losses)).toFixed(1)}%</td></tr>`})):'<p class="muted">No drill results recorded for these dates. Record wins and losses in Enter Practice Data.</p>');
+  $('otherDrillWins').innerHTML='<div class="drill-wins-heading"><h3 class="lb-feature-title">DRILL WINS</h3><div class="drill-wins-toggle" role="group" aria-label="Rank drill wins by">'+[['wins','Total Wins'],['pct','Win %']].map(([value,label])=>`<button type="button" data-drill-metric="${value}" aria-pressed="${drillWinsMetric===value}">${label}</button>`).join('')+'</div>'+leaderboardToggle('other:drillWins',rows.length,'Drill Wins')+'</div><p class="muted">Ranked by '+(drillWinsMetric==='pct'?'win percentage (wins divided by wins + losses)':'total wins')+'. Ties share a rank. Uses the selected date range. Minimum Games applies only to game stats above.</p>'+(rows.length?table(['Rank','Player','Drill Wins','Drill Losses','Win %'],leaderboardRows('other:drillWins',rows).map((row,i)=>{const value=score(row),rank=value===lastScore?lastRank:i+1;lastScore=value;lastRank=rank;return `<tr class="${rank<=3?'lb-top':''}"><td>${rank}</td><td>${esc(playerName(row.id))}</td><td><strong>${row.wins}</strong></td><td>${row.losses}</td><td>${(100*row.wins/(row.wins+row.losses)).toFixed(1)}%</td></tr>`})):'<p class="muted">No drill results recorded for these dates. Record wins and losses in Enter Practice Data.</p>');
 
  }
  function render(){
@@ -102,11 +102,11 @@
    const values=[...totals.get(stat.key).values()],rows=values.filter(r=>r.games>=minimum).sort((a,b)=>b.value-a.value||playerName(a.id).localeCompare(playerName(b.id)));
    if(values.length)recordedStats++;for(const row of rows)athletes.add(row.id);
    let lastValue=null,lastRank=0;
-   const body=rows.slice(0,20).map((row,i)=>{
+   const body=leaderboardRows('other:'+stat.key,rows).map((row,i)=>{
     const rank=row.value===lastValue?lastRank:i+1;lastValue=row.value;lastRank=rank;
     return `<tr class="${rank<=3?'lb-top':''}"><td>${rank}</td><td>${esc(playerName(row.id))}</td><td>${format(row.value)}</td><td>${row.games}</td></tr>`;
    }).join('');
-   return `<article class="lb-panel ${selected===stat.key?'selected':''}" data-stat="${stat.key}"><div class="lb-panel-head"><strong>${stat.label}</strong><button type="button" data-other-view="${stat.key}">View</button></div><div class="lb-panel-meta">${stat.description} · ${rows.length} ranked · Top 20</div>${body?`<div class="scroll"><table><thead><tr><th>#</th><th>Athlete</th><th>Total</th><th title="Games with recorded data for this stat">Games</th></tr></thead><tbody>${body}</tbody></table></div>`:`<p class="lb-note">${values.length?'No athletes meet the minimum games for this stat.':'No data recorded for this stat.'}</p>`}</article>`;
+   return `<article class="lb-panel ${selected===stat.key?'selected':''}" data-stat="${stat.key}"><div class="lb-panel-head"><strong>${stat.label}</strong>${leaderboardToggle('other:'+stat.key,rows.length,stat.label)}</div><div class="lb-panel-meta">${stat.description} · ${rows.length} ranked · ${expandedLeaderboards.has('other:'+stat.key)?'All athletes':'Top 5'}</div>${body?`<div class="scroll"><table><thead><tr><th>#</th><th>Athlete</th><th>Total</th><th title="Games with recorded data for this stat">Games</th></tr></thead><tbody>${body}</tbody></table></div>`:`<p class="lb-note">${values.length?'No athletes meet the minimum games for this stat.':'No data recorded for this stat.'}</p>`}</article>`;
   }).join('');
   const pts=[...totals.get('pts').values()].reduce((n,r)=>n+r.value,0);
   $('otherSummary').innerHTML=[['Games',games.length],['Athletes Ranked',athletes.size],['Stats Recorded',recordedStats],['Recorded Points',format(pts)]].map(([name,value])=>`<div class="card"><small>${name}</small><div class="stat">${value}</div></div>`).join('');
@@ -116,6 +116,6 @@
  for(const id of ['otherScope','otherStat','otherMinGames'])$(id).addEventListener('change',render);
  $('otherMinGames').addEventListener('input',render);
  for(const id of ['otherStartDate','otherEndDate'])$(id).addEventListener('change',()=>{$('otherScope').value='range';render()});
- $('otherWall').addEventListener('click',e=>{const button=e.target.closest('[data-other-view]');if(!button)return;$('otherStat').value=button.dataset.otherView;render();document.querySelector('#otherWall .selected')?.scrollIntoView({behavior:'smooth',block:'nearest'})});
+
  window.renderOtherLeaderboards=render;render();
 })();
