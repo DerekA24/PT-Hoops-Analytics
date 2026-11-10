@@ -592,3 +592,10 @@ body:not([data-page="live-game"]) .profile-data th,body:not([data-page="live-gam
 body[data-entry-mode="game-situation"] #liveStatButtons{grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:repeat(3,minmax(88px,auto));gap:12px}
 body[data-entry-mode="game-situation"] #liveStatButtons button{min-height:88px!important;padding:16px 12px;font-size:22px;line-height:1.2;font-weight:800}
 @media(max-width:767px){body[data-entry-mode="game-situation"] #liveStatButtons{grid-template-rows:repeat(3,minmax(76px,auto));gap:10px}body[data-entry-mode="game-situation"] #liveStatButtons button{min-height:76px!important;font-size:19px;padding:14px 10px}}
+
+/* A gentle phone tip for Game Situation entry. */
+@media (max-width:600px), (max-height:500px) and (pointer:coarse){
+ .live-phone-notice.situation-phone-note{padding:14px 16px;border:1px solid #526b82;border-left:4px solid #7eabc9;background:#182a38;color:#edf5fb;margin-bottom:16px}
+ .situation-phone-note strong{font-size:16px;line-height:1.35}
+ .situation-phone-note p{font-size:13px;line-height:1.5;color:#c5d9e8;margin-top:6px}
+}
