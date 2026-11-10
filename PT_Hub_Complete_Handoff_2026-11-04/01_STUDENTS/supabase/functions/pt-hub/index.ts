@@ -11,6 +11,17 @@ const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function reply(v:unknown,s=200){return new Response(JSON.stringify(v),{status:s,headers:{"Content-Type":"application/json","Access-Control-Allow-Origin":"*","Access-Control-Allow-Methods":"GET,POST,PATCH,DELETE,OPTIONS","Access-Control-Allow-Headers":"content-type,authorization,apikey,x-client-info,x-coach-access-code","Cache-Control":"no-store"}})}
 const fail=(m:string,c=400)=>reply({error:m},c);
 async function codeHash(code:string){const bytes=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(code));return Array.from(new Uint8Array(bytes),x=>x.toString(16).padStart(2,"0")).join("")}
+type ShotSnapshotRow={id:string;player_id:string;drill_id:string;made:boolean;practice_date:string;created_at:string};
+async function fetchAllShots(){
+ const pageSize=1000,rows:ShotSnapshotRow[]=[];
+ for(let offset=0;;offset+=pageSize){
+  const {data,error}=await db.from("pt_shots").select("id,player_id,drill_id,made,practice_date,created_at").order("created_at",{ascending:false}).order("id",{ascending:false}).range(offset,offset+pageSize-1);
+  if(error)return {data:null,error};
+  rows.push(...(data||[]));
+  if(!data||data.length<pageSize)break;
+ }
+ return {data:rows,error:null};
+}
 Deno.serve(async req=>{
  if(req.method==="OPTIONS")return reply({},200);
  const origin=allowedOrigin(req.headers.get("origin"));
@@ -25,7 +36,7 @@ Deno.serve(async req=>{
  const [p,d,s,r,sc,g]=await Promise.all([
  db.from("pt_players").select("id,full_name,jersey_number,grade,position,active").eq("active",true).limit(250),
  db.from("pt_drills").select("id,name,active").eq("active",true).limit(250),
- db.from("pt_shots").select("id,player_id,drill_id,made,practice_date,created_at").order("created_at",{ascending:false}).limit(10000),
+ fetchAllShots(),
  db.from("pt_drill_results").select("id,batch_id,player_id,result,practice_date,recorded_at,created_at").order("recorded_at",{ascending:false}).limit(10000),
  db.from("pt_schedule_records").select("id,payload,updated_at").order("updated_at",{ascending:false}).limit(10),
  db.from("pt_game_situations").select("id,practice_date,payload,updated_at").order("created_at",{ascending:false}).limit(10000)]);
