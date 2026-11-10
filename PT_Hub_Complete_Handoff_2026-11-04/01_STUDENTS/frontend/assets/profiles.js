@@ -1,5 +1,7 @@
 // Profile charts use the existing backup schema; untagged located shots are practice shots.
 let profileSource='practice',profileAllDates=true;
+const profileSources=[['practice','Practice','practiceShots','trendPracticeShots'],['game-situation','Game Situation','gameSituationShots','trendGameSituationShots'],['game','Game','gameShots','trendGameShots']];
+const profileSourceLabel=()=>profileSources.find(([key])=>key===profileSource)?.[1]||'Practice';
 const profileZones=[
  {id:'rim',name:'Finishing',x:250,y:116,path:'M174 12H326V146H174Z'},
  {id:'floaters',name:'Floaters',x:250,y:167,path:'M174 146H326V186H174Z'},
@@ -11,7 +13,7 @@ const profileZones=[
  {id:'slot',name:'Slot 3',x:119,y:390,path:'M12 280L62 345L90 300L174 352V458H12Z M326 352L410 300L438 345L488 280V458H326Z'},
  {id:'top',name:'Top of Key 3',x:250,y:394,path:'M174 352H326V458H174Z'}
 ];
-function profileShotSource(shot){return shot.shotContext==='game'||shot.context==='game'||shot.source==='game'||shot.gameId?'game':'practice'}
+function profileShotSource(shot){if([shot.shotContext,shot.context,shot.source].includes('game-situation'))return 'game-situation';return shot.shotContext==='game'||shot.context==='game'||shot.source==='game'||shot.gameId?'game':'practice'}
 function profileLocation(shot){return shot.x!==null&&shot.y!==null&&shot.x!==''&&shot.y!==''&&Number.isFinite(Number(shot.x))&&Number.isFinite(Number(shot.y))&&Number(shot.x)>=12&&Number(shot.x)<=488&&Number(shot.y)>=12&&Number(shot.y)<=458}
 function profileZone(shot){
  const name=String(shot.category||shot.type||shot.drill||'').toLowerCase();
@@ -40,8 +42,8 @@ function profileZone(shot){
 }
 function profileIsTeam(){return document.body.dataset.profileScope==='team'}
 function profileCategory(shot){const name=shot.category||(shot.type==='Custom Drill'&&shot.drill?'Custom: '+shot.drill:shot.type)||profileZones.find(z=>z.id===shot.zone)?.name||'Located shots';return name==='Midrange'?'Midrange (Unspecified)':name}
-function profileRecords({allDates=profileAllDates}={}){
- const player=profileIsTeam()?null:$('profilePlayer').value,records=[];
+function profileRecords({allDates=profileAllDates,source=profileSource,player=profileIsTeam()?null:($('profilePlayer')?.value??null)}={}){
+ const records=[];
  const dateMatches=date=>allDates||dateInRange(date,'court');
  const add=(shot,kind,date)=>{
   if((player!==null&&shot.playerId!==player)||!dateMatches(date))return;
@@ -50,11 +52,18 @@ function profileRecords({allDates=profileAllDates}={}){
   if(!Number.isFinite(attempts)||!Number.isFinite(makes)||attempts<=0||makes<0||makes>attempts)return;
   records.push({...shot,date,makes,attempts,kind,zone:profileZone(shot)});
  };
- const shooting=state.shooting.filter(s=>profileShotSource(s)===profileSource);
+ const shooting=state.shooting.filter(s=>profileShotSource(s)===source);
  for(const shot of shooting)add(shot,'set',shot.date);
  const linked=new Set(shooting.map(s=>s.id));
- for(const shot of state.court){if(profileShotSource(shot)!==profileSource||shot.shotId&&linked.has(shot.shotId))continue;add(shot,'court',shot.date)}
- if(profileSource==='game')for(const game of state.games){
+ for(const shot of state.court){if(profileShotSource(shot)!==source||shot.shotId&&linked.has(shot.shotId))continue;add(shot,'court',shot.date)}
+ if(source==='game-situation')for(const session of state.gameSituations||[]){
+  for(const event of session.events||[]){
+   if(!/^(TWO|THREE|FT)_[MX]$/.test(event.type))continue;
+   const zone=profileZone(event),category=profileZones.find(z=>z.id===zone)?.name||(event.type.startsWith('THREE')?'Game Situation 3PT':event.type.startsWith('FT')?'Free Throws':'Game Situation 2PT');
+   add({...event,type:category,category,made:event.type.endsWith('_M'),shotContext:'game-situation'},'game-situation',session.date);
+  }
+ }
+ if(source==='game')for(const game of state.games){
   const boxScores=Array.isArray(game.playerStats)?game.playerStats:[],covered=new Set(),didNotPlay=new Set();
   const pairs=[['twoMade','twoAttempts','TWO','Game 2PT'],['threeMade','threeAttempts','THREE','Game 3PT'],['ftMade','ftAttempts','FT','Free Throws']];
   for(const row of boxScores){
@@ -91,10 +100,10 @@ function profileColor(makes,attempts,zone){
 function renderProfile(){
  if(!document.getElementById('profiles'))return;
  dateRangeValid('court');
- const team=profileIsTeam(),player=team?null:state.players.find(p=>p.id===$('profilePlayer').value),label=profileSource==='game'?'Game':'Practice';
+ const team=profileIsTeam(),player=team?null:state.players.find(p=>p.id===$('profilePlayer').value),label=profileSourceLabel();
  $('profileIdentity').textContent=team?'Entire team · All athletes':player?`#${player.number} ${player.name}${player.position?' · '+player.position:''}`:'Choose a player to see their results.';
  $('profileChartTitle').textContent=label+' Shot Heat Chart';
- for(const source of ['practice','game'])for(const id of [source+'Shots','trend'+(source==='practice'?'Practice':'Game')+'Shots']){const button=$(id);if(button){button.classList.toggle('active',source===profileSource);button.setAttribute('aria-pressed',String(source===profileSource))}}
+ for(const [source,,...ids] of profileSources)for(const id of ids){const button=$(id);if(button){button.classList.toggle('active',source===profileSource);button.setAttribute('aria-pressed',String(source===profileSource))}}
  $('allDates').classList.toggle('active',profileAllDates);$('oneDate').classList.toggle('active',!profileAllDates);
  const records=team||player?profileRecords():[],zones=new Map(profileZones.map(z=>[z.id,{m:0,a:0}]));
  let makes=0,attempts=0,mapped=0;
@@ -130,7 +139,7 @@ function renderShootingTrend(){
   const row=grouped.get(date)||{date,m:0,a:0};row.m+=shot.makes;row.a+=shot.attempts;grouped.set(date,row);
  }
  const days=[...grouped.values()].sort((a,b)=>a.date.localeCompare(b.date));
- const source=profileSource==='game'?'Game':'Practice',scope=select.value||'All shots',owner=profileIsTeam()?'Team':state.players.find(p=>p.id===$('profilePlayer').value)?.name||'Player';
+ const source=profileSourceLabel(),scope=select.value||'All shots',owner=profileIsTeam()?'Team':state.players.find(p=>p.id===$('profilePlayer').value)?.name||'Player';
  if(!days.length){$('teamTrendChart').innerHTML='<p class="trend-empty">No dated shots match this selection.</p>';$('teamTrendSummary').textContent=`${owner} · ${source} · ${scope} · ${profileAllDates?'Full season':dateRangeLabel('court')}${undated?' · '+undated+' undated attempts excluded':''}`;$('teamTrendTable').innerHTML='';return}
  const value=d=>metric==='percentage'?100*d.m/d.a:metric==='makes'?d.m:d.a;
  const W=Math.max(320,Math.min(900,$('teamTrendChart').clientWidth||900)),H=290,L=58,R=24,T=24,B=44;
@@ -155,7 +164,7 @@ if(document.getElementById('profiles')){
  if(el('profilePlayer'))el('profilePlayer').onchange=renderProfile;
  if(el('trendShotType')){el('trendShotType').onchange=renderShootingTrend;el('trendMetric').onchange=renderShootingTrend}
  if(el('teamTrendChart')){let resizeTimer;window.addEventListener('resize',()=>{clearTimeout(resizeTimer);resizeTimer=setTimeout(renderShootingTrend,100)})}
- for(const source of ['practice','game'])for(const id of [source+'Shots','trend'+(source==='practice'?'Practice':'Game')+'Shots']){const button=el(id);if(button)button.onclick=()=>{profileSource=source;renderProfile()}}
+ for(const [source,,...ids] of profileSources)for(const id of ids){const button=el(id);if(button)button.onclick=()=>{profileSource=source;renderProfile()}}
  el('allDates').onclick=()=>{profileAllDates=true;renderProfile()};
  el('oneDate').onclick=()=>{profileAllDates=false;renderProfile()};
  for(const id of ['courtStartDate','courtEndDate'])el(id).onchange=()=>{profileAllDates=false;renderProfile()};

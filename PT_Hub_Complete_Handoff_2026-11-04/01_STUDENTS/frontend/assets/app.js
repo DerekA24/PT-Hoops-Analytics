@@ -4,6 +4,7 @@ try{state=JSON.parse(localStorage.getItem(KEY))}catch{}
 if(!state||!Array.isArray(state.players)||!Array.isArray(state.games))state={players:[],games:[],shooting:[],court:[]};
 state.shooting=Array.isArray(state.shooting)?state.shooting:[];
 state.court=Array.isArray(state.court)?state.court:[];
+state.gameSituations=Array.isArray(state.gameSituations)?state.gameSituations:[];
 state.schedule=Array.isArray(state.schedule)?state.schedule:[];
 state.corrections=Array.isArray(state.corrections)?state.corrections:[];
 state.hiddenBoards=Array.isArray(state.hiddenBoards)?state.hiddenBoards:[];
@@ -53,7 +54,7 @@ if($('rosterRows')&&$('editName')&&$('editNumber')&&$('editGrade')&&$('editPosit
 if($('cancelPlayer')&&$('rosterEditor')){$('cancelPlayer').onclick=()=>$('rosterEditor').hidden=true;}
 if($('savePlayer')&&$('editName')&&$('editNumber')&&$('editGrade')&&$('editPosition')&&$('rosterEditor')){$('savePlayer').onclick=()=>{const p=state.players.find(p=>p.id===editPlayer),name=$('editName').value.trim(),number=$('editNumber').value.trim();if(!p||!name||!validNumber(number))return toast('Enter valid name and jersey');if(state.players.some(x=>x.id!==p.id&&+x.number===+number))return toast('Jersey already used');Object.assign(p,{name,number,grade:$('editGrade').value,position:$('editPosition').value});$('rosterEditor').hidden=true;save()};}
 if($('export')){$('export').onclick=()=>{const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='PT_Basketball_Backup.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)};}
-if($('import')){$('import').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{const v=JSON.parse(await f.text());if(!Array.isArray(v.players)||!Array.isArray(v.games)||!Array.isArray(v.shooting)||!Array.isArray(v.court))throw Error('Invalid file format');if(confirm('Replace all data on this device with this backup?')){state=v;state.drillResults=Array.isArray(state.drillResults)?state.drillResults:[];state.schedule=Array.isArray(state.schedule)?state.schedule:[];save()}}catch(err){alert('Import failed: '+err.message)}e.target.value=''};}
+if($('import')){$('import').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{const v=JSON.parse(await f.text());if(!Array.isArray(v.players)||!Array.isArray(v.games)||!Array.isArray(v.shooting)||!Array.isArray(v.court))throw Error('Invalid file format');if(confirm('Replace all data on this device with this backup?')){state=v;state.gameSituations=Array.isArray(state.gameSituations)?state.gameSituations:[];state.drillResults=Array.isArray(state.drillResults)?state.drillResults:[];state.schedule=Array.isArray(state.schedule)?state.schedule:[];save()}}catch(err){alert('Import failed: '+err.message)}e.target.value=''};}
 window.addEventListener('offline',()=>setStorageStatus('Offline · Saved on this device · No shared sync',false));
 window.addEventListener('online',()=>setStorageStatus('Online · Saved on this device · No shared sync',false));
 const RECENT_KEY='pt-basketball-recent-athletes-v1';
@@ -96,15 +97,15 @@ state.corrections=Array.isArray(state.corrections)?state.corrections:[];
 function drillLabel(name){return name==='Midrange'?'Midrange (Unspecified)':name}
 function getDrillTypes(){return [...new Set(['Free Throws','Top of Key 3','Wing 3','Slot 3','Corner 3','Midrange Low','Midrange High','Floaters','Finishing / Layups','Contested Shots','Custom Drill',...state.shooting.map(x=>String(x.type||'Other'))])].sort()}
 function syncFilterSelect(id,options){const el=$(id);if(!el)return;const value=el.value;el.innerHTML='<option value="">All '+(id==='lbCategory'?'Shooting Drills':'Drills')+'</option>'+options.map(x=>`<option value="${esc(x)}">${esc(drillLabel(x))}</option>`).join('');el.value=options.includes(value)?value:''}
-function leaderboardDrills(){
+function leaderboardDrills(records=state.shooting){
  const defaults=['Free Throws','Top of Key 3','Wing 3','Slot 3','Corner 3','Midrange Low','Midrange High','Floaters','Finishing / Layups','Contested Shots'];
- const extras=state.shooting.filter(x=>x.type==='Custom Drill'&&String(x.drill||'').trim()).map(x=>'Custom: '+String(x.drill).trim());
- const other=state.shooting.filter(x=>x.type!=='Custom Drill').map(x=>String(x.type||'Other'));
- const generic=state.shooting.some(x=>x.type==='Custom Drill'&&!String(x.drill||'').trim())?['Custom Drill']:[];
+ const extras=records.filter(x=>x.type==='Custom Drill'&&String(x.drill||'').trim()).map(x=>'Custom: '+String(x.drill).trim());
+ const other=records.filter(x=>x.type!=='Custom Drill').map(x=>String(x.type||'Other'));
+ const generic=records.some(x=>x.type==='Custom Drill'&&!String(x.drill||'').trim())?['Custom Drill']:[];
  return [...new Set([...defaults,...extras,...generic,...other])];
 }
 function isBoardHidden(name){return Array.isArray(state.hiddenBoards)&&state.hiddenBoards.includes(name)}
-function visibleLeaderboardDrills(){return leaderboardDrills().filter(name=>!isBoardHidden(name))}
+function visibleLeaderboardDrills(records=state.shooting){return leaderboardDrills(records).filter(name=>!isBoardHidden(name))}
 function renderBoardManager(){
  const root=$('boardManageRows');if(!root)return;
  const names=[...new Set([...leaderboardDrills(),...(state.hiddenBoards||[])])];
@@ -125,9 +126,16 @@ function drillMatches(x,category){
  if(category==='Custom Drill')return x.type==='Custom Drill'&&!String(x.drill||'').trim();
  return x.type===category;
 }
+let leaderboardSource='practice';
+function leaderboardRecords(){
+ return profileRecords({allDates:true,source:leaderboardSource,player:null}).map(shot=>leaderboardSource==='game'?{...shot,type:profileZones.find(zone=>zone.id===shot.zone)?.name||profileCategory(shot)}:shot);
+}
+function syncLeaderboardSource(){
+ for(const button of document.querySelectorAll('[data-lb-source]')){const active=button.dataset.lbSource===leaderboardSource;button.classList.toggle('active',active);button.setAttribute('aria-pressed',String(active))}
+}
 function leaderboardRowsFor(category){
  const scope=$('lbScope').value,min=Math.max(20,Math.floor(Number($('lbMin').value)||20)),metric=$('lbMetric').value;
- const records=state.shooting.filter(x=>(scope!=='range'||dateInRange(x.date,'lb'))&&drillMatches(x,category));
+ const records=leaderboardRecords().filter(x=>(scope!=='range'||dateInRange(x.date,'lb'))&&drillMatches(x,category));
  const grouped=new Map();
  for(const x of records){let r=grouped.get(x.playerId)||{id:x.playerId,makes:0,attempts:0,sets:0};r.makes+=Number(x.makes)||0;r.attempts+=Number(x.attempts)||0;r.sets++;grouped.set(x.playerId,r)}
  const score=r=>metric==='made'?r.makes:metric==='attempts'?r.attempts:r.makes/r.attempts;
@@ -135,12 +143,12 @@ function leaderboardRowsFor(category){
  const total=records.reduce((a,x)=>({makes:a.makes+(Number(x.makes)||0),attempts:a.attempts+(Number(x.attempts)||0)}),{makes:0,attempts:0});
  return {rows,total,records};
 }
-function dailyChampionWins(){
+function dailyChampionWins(records=state.shooting){
  // One win per athlete, drill and date. Tied first place athletes each receive one win.
  // A player must take at least 20 shots in that drill on that date.
  const buckets=new Map();
- const available=new Set(leaderboardDrills());
- for(const x of state.shooting){
+ const available=new Set(leaderboardDrills(records));
+ for(const x of records){
   if($('lbScope')?.value==='range'&&!dateInRange(x.date,'lb'))continue;
   const category=x.type==='Custom Drill'?(String(x.drill||'').trim()?'Custom: '+String(x.drill).trim():'Custom Drill'):String(x.type||'Other');
   if(!available.has(category)||!x.date)continue;
@@ -174,7 +182,8 @@ document.addEventListener('click',e=>{
  [...document.querySelectorAll('[data-leaderboard-toggle]')].find(el=>el.dataset.leaderboardToggle===key)?.focus({preventScroll:true});
 });
 function renderLeaderboards(){if(!$('leaderboards'))return;
- const all=visibleLeaderboardDrills();syncFilterSelect('lbCategory',all);
+ syncLeaderboardSource();
+ const all=visibleLeaderboardDrills(leaderboardRecords());syncFilterSelect('lbCategory',all);
  const cat=$('lbCategory').value,scope=$('lbScope').value;
  dateRangeValid('lb');
  const minInput=$('lbMin');if(Number(minInput.value)<20)minInput.value='20';minInput.min='20';
@@ -186,7 +195,7 @@ function renderLeaderboards(){if(!$('leaderboards'))return;
    const ranked=leaderboardRows('shooting:'+drill,d.rows).map((x,i)=>`<tr class="${i<3?'lb-top':''}"><td>${i===0?'★ 1':i+1}</td><td title="${esc(playerName(x.id))}">${esc(playerName(x.id))}</td><td>${x.makes}/${x.attempts}</td><td>${pct(x.makes,x.attempts)}</td></tr>`).join('');
    return `<article class="lb-panel ${selected?'selected':''}"><div class="lb-panel-head"><strong>${esc(drillLabel(drill))}</strong>${leaderboardToggle('shooting:'+drill,d.rows.length,drillLabel(drill))}</div><div class="lb-panel-meta">${d.rows.length} qualified · ${d.total.attempts} shots · MIN 20 · ${expandedLeaderboards.has('shooting:'+drill)?'All athletes':'Top 5'}</div>${ranked?`<table><thead><tr><th>#</th><th>Athlete</th><th>M/A</th><th>%</th></tr></thead><tbody>${ranked}</tbody></table>`:'<p class="lb-empty">No athletes with 20 attempts yet</p>'}</article>`;
  }).join('');
- const winners=dailyChampionWins();
+ const winners=dailyChampionWins(leaderboardRecords());
  const dest=$('lbChampions');if(dest)dest.innerHTML=`<div class="drill-wins-heading"><div class="lb-feature-title">DAILY SHOOTING CHAMPIONS</div>${leaderboardToggle('shooting:champions',winners.length,'Daily Shooting Champions')}</div><p class="muted">One win for finishing first in shooting percentage in a drill on a practice date with at least 20 attempts. Ties share a win. Counts recalculate after coach corrections.</p>`+(winners.length?table(['Rank','Athlete','Daily Shooting Wins'],leaderboardRows('shooting:champions',winners).map((x,i)=>`<tr><td>${i+1}</td><td>${esc(playerName(x.id))}</td><td><strong>${x.count}</strong></td></tr>`)):'<p class="muted">Daily champions appear when athletes record at least 20 attempts in a drill on the same date.</p>');
 }
 function coachRows(){const p=$('coachPlayer').value,t=$('coachCategory').value,q=String($('coachPlayerSearch')?.value||'').trim().toLowerCase();return state.shooting.filter(x=>(!p||x.playerId===p)&&(!q||playerName(x.playerId).toLowerCase().includes(q)||String(state.players.find(player=>player.id===x.playerId)?.number??'').toLowerCase()===q.replace(/^#/,''))&&dateInRange(x.date,'coach')&&(!t||x.type===t)).slice().sort((a,b)=>String(b.recordedAt||b.date).localeCompare(String(a.recordedAt||a.date)))}
@@ -260,6 +269,7 @@ for(const id of ['coachPlayer','coachStartDate','coachEndDate','coachCategory'])
 if($('coachClear')&&$('coachPlayer')&&$('coachStartDate')&&$('coachCategory')){$('coachClear').onclick=()=>{if($('coachPlayerSearch'))$('coachPlayerSearch').value='';$('coachPlayer').value='';$('coachStartDate').value='';$('coachEndDate').value='';$('coachCategory').value='';renderCoachReview()};}
 if($('coachExport')&&$('export')){$('coachExport').onclick=()=>$('export').click();}
 if($('coachImport')){$('coachImport').addEventListener('change',async e=>{const f=e.target.files?.[0];if(!f)return;try{const incoming=JSON.parse(await f.text());if(!Array.isArray(incoming.players)||!Array.isArray(incoming.shooting))throw Error('Not a recognized basketball backup');if(!confirm('Import this basketball backup into this browser? Existing local records will be replaced.'))return;state={...incoming,players:incoming.players,games:Array.isArray(incoming.games)?incoming.games:[],shooting:incoming.shooting,court:Array.isArray(incoming.court)?incoming.court:[],schedule:Array.isArray(incoming.schedule)?incoming.schedule:[],corrections:Array.isArray(incoming.corrections)?incoming.corrections:[],hiddenBoards:Array.isArray(incoming.hiddenBoards)?incoming.hiddenBoards:[]};save();toast('Backup imported. Athlete and drill filters restored.')}catch(err){alert('Could not import backup: '+err.message)}finally{e.target.value=''}});}
+for(const button of document.querySelectorAll('[data-lb-source]'))button.addEventListener('click',()=>{leaderboardSource=button.dataset.lbSource;renderLeaderboards()});
 for(const id of ['lbScope','lbCategory','lbMetric','lbMin'])$(id)?.addEventListener('change',()=>renderLeaderboards());
 if($('lbMin')){$('lbMin').addEventListener('input',()=>renderLeaderboards());}
 
