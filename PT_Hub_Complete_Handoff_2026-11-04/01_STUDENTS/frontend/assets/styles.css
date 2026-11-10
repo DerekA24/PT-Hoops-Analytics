@@ -572,3 +572,23 @@ body:not([data-page="live-game"]) .profile-data th,body:not([data-page="live-gam
  #livePlayerSlots{grid-auto-rows:minmax(94px,auto)}
  #livePlayerSlots .live-slot-dropdown,#livePlayerSlots .live-slot-dropdown select{min-height:94px!important}
 }
+
+/* Keep all three profile shot sources accessible on small screens. */
+.shot-source-toggle{max-width:100%;min-width:0;display:grid;grid-template-columns:1fr 1.45fr 1fr}
+.shot-source-toggle button{min-width:0;white-space:normal;line-height:1.25;padding:10px 12px}
+@media(max-width:767px){.shot-source-toggle button{font-size:12px;padding:10px 8px}}
+
+.leaderboard-page-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:18px}
+.leaderboard-page-heading h2{margin:0!important}
+@media(max-width:767px){.leaderboard-page-heading .shot-source-toggle{width:100%}}
+
+@media (min-width:768px) and (min-height:600px) and (pointer:coarse){
+ body[data-entry-mode="game-situation"] [data-live-team="opponent"][aria-pressed="true"]{background:linear-gradient(#fff,#dce2e8);border-color:#fff;color:#192431}
+ body[data-entry-mode="game-situation"] #liveGamePage[data-tablet-team="opponent"] #livePlayerSlots .selected select{background:linear-gradient(#f7f9fc,#d0d8e2)!important;border-color:#fff!important;box-shadow:0 0 0 1px #aab4c2}
+ body[data-entry-mode="game-situation"] #liveGamePage[data-tablet-team="opponent"] #livePlayerSlots .selected .live-player-activate{color:#111b25}
+}
+
+/* Game Situation entry only needs the six shooting outcomes. */
+body[data-entry-mode="game-situation"] #liveStatButtons{grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:repeat(3,minmax(88px,auto));gap:12px}
+body[data-entry-mode="game-situation"] #liveStatButtons button{min-height:88px!important;padding:16px 12px;font-size:22px;line-height:1.2;font-weight:800}
+@media(max-width:767px){body[data-entry-mode="game-situation"] #liveStatButtons{grid-template-rows:repeat(3,minmax(76px,auto));gap:10px}body[data-entry-mode="game-situation"] #liveStatButtons button{min-height:76px!important;font-size:19px;padding:14px 10px}}

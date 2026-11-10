@@ -71,21 +71,21 @@
   return {players,totals,shots,zones,eventCount:events.length,unlocated:events.filter(e=>fieldShots.has(e.type)&&!located(e)).length};
  }
  function insights(report){
-  const a=report.pt.totals,b=report.opponent.totals,facts=[];
+  const home=report.homeName||'Park Tudor',a=report.pt.totals,b=report.opponent.totals,facts=[];
   const add=(title,text,priority)=>facts.push({id:'I'+(facts.length+1),title,text,priority});
-  if(a.to!==null&&b.to!==null)add('Ball security',`Park Tudor recorded ${a.to} turnovers; the opponent recorded ${b.to}.`,Math.abs(a.to-b.to)+4);
-  if(a.reb!==null&&b.reb!==null)add('Rebounding',`Park Tudor recorded ${a.reb} rebounds versus ${b.reb} for the opponent. Offensive rebounds: ${a.orb??'unavailable'} versus ${b.orb??'unavailable'}.`,Math.abs(a.reb-b.reb)+3);
-  if(a.pitp!==null&&b.pitp!==null)add('Inside scoring',`Recorded points in the paint: Park Tudor ${a.pitp}, opponent ${b.pitp}.`,Math.abs(a.pitp-b.pitp)+2);
-  if(pct(a.fg)!==null&&pct(b.fg)!==null)add('Shooting efficiency',`Park Tudor shot ${a.fg.made}/${a.fg.attempts} (${pct(a.fg).toFixed(1)}%) from the field; the opponent shot ${b.fg.made}/${b.fg.attempts} (${pct(b.fg).toFixed(1)}%).`,Math.abs(pct(a.fg)-pct(b.fg))/2+3);
-  if(a.three?.attempts)add('Three-point shooting',`Park Tudor made ${a.three.made} of ${a.three.attempts} threes (${pct(a.three).toFixed(1)}%).`,3);
-  if(a.ft?.attempts)add('Free throws',`Park Tudor made ${a.ft.made}/${a.ft.attempts} free throws, leaving ${a.ft.attempts-a.ft.made} points at the line.`,a.ft.attempts-a.ft.made+2);
-  if(a.fbp!==null&&b.fbp!==null)add('Transition scoring',`Recorded fast-break points: Park Tudor ${a.fbp}, opponent ${b.fbp}.`,Math.abs(a.fbp-b.fbp)/2+1);
+  if(a.to!==null&&b.to!==null)add('Ball security',`${home} recorded ${a.to} turnovers; the opponent recorded ${b.to}.`,Math.abs(a.to-b.to)+4);
+  if(a.reb!==null&&b.reb!==null)add('Rebounding',`${home} recorded ${a.reb} rebounds versus ${b.reb} for the opponent. Offensive rebounds: ${a.orb??'unavailable'} versus ${b.orb??'unavailable'}.`,Math.abs(a.reb-b.reb)+3);
+  if(a.pitp!==null&&b.pitp!==null)add('Inside scoring',`Recorded points in the paint: ${home} ${a.pitp}, opponent ${b.pitp}.`,Math.abs(a.pitp-b.pitp)+2);
+  if(pct(a.fg)!==null&&pct(b.fg)!==null)add('Shooting efficiency',`${home} shot ${a.fg.made}/${a.fg.attempts} (${pct(a.fg).toFixed(1)}%) from the field; the opponent shot ${b.fg.made}/${b.fg.attempts} (${pct(b.fg).toFixed(1)}%).`,Math.abs(pct(a.fg)-pct(b.fg))/2+3);
+  if(a.three?.attempts)add('Three-point shooting',`${home} made ${a.three.made} of ${a.three.attempts} threes (${pct(a.three).toFixed(1)}%).`,3);
+  if(a.ft?.attempts)add('Free throws',`${home} made ${a.ft.made}/${a.ft.attempts} free throws, leaving ${a.ft.attempts-a.ft.made} points at the line.`,a.ft.attempts-a.ft.made+2);
+  if(a.fbp!==null&&b.fbp!==null)add('Transition scoring',`Recorded fast-break points: ${home} ${a.fbp}, opponent ${b.fbp}.`,Math.abs(a.fbp-b.fbp)/2+1);
   const leader=report.pt.players.filter(p=>p.pts!==null).sort((x,y)=>y.pts-x.pts)[0];
-  if(leader?.pts)add('Leading scorer',`${leader.name} led Park Tudor's recorded scoring with ${leader.pts} points.`,2);
+  if(leader?.pts)add('Leading scorer',`${leader.name} led ${home}'s recorded scoring with ${leader.pts} points.`,2);
   return facts.sort((x,y)=>y.priority-x.priority);
  }
  function build(game,players){
-  const report={date:game.date||'',opponentName:game.opponent||'Opponent',createdAt:new Date().toISOString(),pt:teamData(game,players,'pt'),opponent:teamData(game,game.opponentPlayers||[],'opponent')};
+  const report={homeName:game.homeTeamName||'Park Tudor',date:game.date||'',opponentName:game.opponent||'Opponent',createdAt:new Date().toISOString(),pt:teamData(game,players,'pt'),opponent:teamData(game,game.opponentPlayers||[],'opponent')};
   report.ptScore=number(game.teamScore)??report.pt.totals.pts;
   report.opponentScore=number(game.opponentScore??game.oppScore)??report.opponent.totals.pts;
   report.facts=insights(report);return report;
