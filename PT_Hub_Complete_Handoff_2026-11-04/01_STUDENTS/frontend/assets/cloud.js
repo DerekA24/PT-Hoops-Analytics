@@ -6,7 +6,7 @@
  const knownPlayers=new Set(state.players.map(p=>p.id));
  const pendingKey='pt_hub_pending_v1';
  let pending=[];try{pending=JSON.parse(localStorage.getItem(pendingKey)||'[]')}catch{}
- let roster=new Map(),drills=new Map(),cloudShots=new Map(),cloudDrillResults=new Set(),busy=false,lastError='';
+ let roster=new Map(),drills=new Map(),cloudShots=new Map(),cloudDrillResults=new Set(),cloudGameSituations=new Set(),cloudScheduleSignature='',cloudSituationSignature='',busy=false,lastError='';
  const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  const status=document.createElement('div');status.id='ptSharedStatus';status.setAttribute('role','status');status.textContent='Connecting shared team data…';
  document.querySelector('nav')?.insertAdjacentElement('afterend',status);
@@ -40,6 +40,11 @@
    shotIds.clear();for(const id of current)shotIds.add(id);remember();
    if(pending.length)flush();
    if(pendingDrillResults.length)flushDrillResults();
+   const scheduleSignature=JSON.stringify({schedule:state.schedule,games:state.games});
+   if(scheduleSignature!==cloudScheduleSignature&&window.PTCoachAccess?.isUnlocked())syncSchedule(scheduleSignature);
+   const situations=Array.isArray(state.gameSituations)?state.gameSituations:[];
+   const situationSignature=JSON.stringify(situations);
+   if(situationSignature!==cloudSituationSignature)syncGameSituations(situations,situationSignature);
    if(window.PTCoachAccess?.isUnlocked())for(const p of state.players){if(!knownPlayers.has(p.id)){knownPlayers.add(p.id);sendPlayer(p)}}
  }
  let debounce=null;window.ptCloudQueueSave=()=>{clearTimeout(debounce);debounce=setTimeout(noticeChanges,80)};
@@ -68,6 +73,22 @@
  async function load(){
   try{const data=await request('snapshot');let addedPlayers=0,addedShots=0,addedResults=0;
    roster=new Map(data.players.map(p=>[p.id,p]));drills=new Map(data.drills.map(d=>[d.name.toLowerCase(),d.id]));
+   if(Array.isArray(data.scheduleRecords)){
+    const remote=data.scheduleRecords.flatMap(record=>record.payload&&typeof record.payload==='object'?[record.payload]:[]);
+    const remoteSchedule=remote.flatMap(record=>Array.isArray(record.schedule)?record.schedule:[]);
+    const remoteGames=remote.flatMap(record=>Array.isArray(record.games)?record.games:[]);
+    const mergeById=(local,shared)=>{const merged=new Map(local.filter(x=>x?.id).map(x=>[x.id,x]));for(const item of shared)if(item?.id)merged.set(item.id,item);return [...merged.values()]};
+    const mergedSchedule=mergeById(state.schedule,remoteSchedule),mergedGames=mergeById(state.games,remoteGames);
+    if(JSON.stringify(state.schedule)!==JSON.stringify(mergedSchedule)||JSON.stringify(state.games)!==JSON.stringify(mergedGames)){state.schedule=mergedSchedule;state.games=mergedGames;save();}
+    cloudScheduleSignature=remote.length?JSON.stringify({schedule:remoteSchedule,games:remoteGames}):'';
+   }
+   if(Array.isArray(data.gameSituations)){
+    const remote=data.gameSituations.map(record=>record.payload).filter(Boolean),existing=new Map((state.gameSituations||[]).map(game=>[game.id,game]));
+    for(const game of remote)if(game.id)existing.set(game.id,game);
+    state.gameSituations=[...existing.values()].sort((a,b)=>String(b.createdAt||b.date).localeCompare(String(a.createdAt||a.date)));
+    cloudGameSituations=new Set(remote.map(game=>game.id).filter(Boolean));
+    cloudSituationSignature=JSON.stringify(remote.sort((a,b)=>String(b.createdAt||b.date).localeCompare(String(a.createdAt||a.date))));
+   }
    state.drillResults=Array.isArray(state.drillResults)?state.drillResults:[];
    const existingResults=new Set((state.drillResults||[]).map(x=>x.id));
    for(const result of data.drillResults||[]){cloudDrillResults.add(result.id);if(!existingResults.has(result.id)){state.drillResults.push({id:result.id,batchId:result.batch_id,playerId:result.player_id,date:result.practice_date,result:result.result,recordedAt:result.recorded_at||result.created_at});existingResults.add(result.id);addedResults++}}
@@ -117,6 +138,12 @@
    noticeChanges();
   }catch(e){label('Shared data unavailable. Local recording continues; cloud sync will retry: '+e.message,true)}
  }
+ async function syncSchedule(signature){
+  try{await request('schedule_sync','POST',{id:'00000000-0000-0000-0000-000000000001',schedule:state.schedule,games:state.games},await token());cloudScheduleSignature=signature;label('Schedule saved to Supabase')}catch(e){label('Schedule cloud save failed: '+e.message,true)}
+ }
+ async function syncGameSituations(situations,signature){
+  try{for(const game of situations){if(!uuid.test(game.id))continue;await request('game_situation','POST',{id:game.id,practice_date:game.date,payload:game})}cloudSituationSignature=signature;label('Game situation data saved to Supabase')}catch(e){label('Game situation cloud save failed: '+e.message,true)}
+ }
  // Coach Review's access-code gate is the only coach sign-in step.
  async function token(){
   const code=window.PTCoachAccess?.cloudCredential();
@@ -129,5 +156,5 @@
  });
  async function sendPlayer(p){try{if(!uuid.test(p.id))throw Error('Player ID is not a UUID');await request('player','POST',{id:p.id,full_name:p.name,jersey_number:p.number||null,grade:p.grade,position:p.position},await token());roster.set(p.id,p);label('Roster saved to Supabase')}catch(e){label('Roster cloud save failed: '+e.message,true)}}
  async function coachMutation(method,id,made){try{await request('shot',method,{id,...(method==='PATCH'?{made}:{})},await token());if(method==='PATCH')cloudShots.set(id,{made});else cloudShots.delete(id);label('Coach correction saved to Supabase')}catch(e){label('Coach correction not synchronized: '+e.message,true)}}
- load();setInterval(()=>{if(document.visibilityState==='visible')load()},12000);document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')load()});
+ load();setInterval(()=>{if(document.visibilityState==='visible'){noticeChanges();load()}},12000);document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'){noticeChanges();load()}});
 })();
