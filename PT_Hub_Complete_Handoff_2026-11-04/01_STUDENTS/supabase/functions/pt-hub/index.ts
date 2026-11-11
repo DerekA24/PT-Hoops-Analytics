@@ -58,8 +58,18 @@ async function verifyCoach(req:Request):Promise<CoachCheck>{
  if(!code)return {error:"Coach access required",status:401};
  const {data:configured,error:accessError}=await db.from("pt_coach_access").select("code_hash").eq("id","primary").maybeSingle();
  if(accessError)return {error:"Coach access unavailable",status:500};
- if(!configured)return {error:"Coach access is not configured. A database administrator must seed pt_coach_access.",status:503};
- return sameHash(configured.code_hash,await sha256(code))?null:{error:"Coach access denied",status:403};
+ let storedHash=configured?.code_hash as string|undefined;
+ if(!storedHash){
+  // First use on a fresh project: the operator-provided secret seeds the row. Requests never choose the code.
+  const initial=Deno.env.get("PT_COACH_INITIAL_CODE")?.trim()||"";
+  if(initial.length<MIN_CODE_LENGTH)return {error:"Coach access is not configured. Set the PT_COACH_INITIAL_CODE function secret.",status:503};
+  const {error}=await db.from("pt_coach_access").upsert({id:"primary",code_hash:await sha256(initial)},{onConflict:"id",ignoreDuplicates:true});
+  if(error)return {error:"Coach access could not be initialized",status:500};
+  const {data:seeded}=await db.from("pt_coach_access").select("code_hash").eq("id","primary").maybeSingle();
+  storedHash=seeded?.code_hash;
+  if(!storedHash)return {error:"Coach access could not be initialized",status:500};
+ }
+ return sameHash(storedHash,await sha256(code))?null:{error:"Coach access denied",status:403};
 }
 Deno.serve(async req=>{
  const origin=allowedOrigin(req.headers.get("origin"));

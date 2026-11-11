@@ -1,10 +1,8 @@
 -- Hardening pass for the pt-hub Edge Function. Apply together with the updated function.
 
--- 1. Seed the coach access row so an anonymous first caller can no longer claim the code.
---    The hash is sha256 of the documented default code. Rotate it through the Coach Review "Change Code" tool.
-insert into public.pt_coach_access (id, code_hash)
-values ('primary', 'c81ce2684a7b8d8738cd9a978e5e1acc846eca4b92686420bc1e641d287c4e80')
-on conflict (id) do nothing;
+-- 1. The coach access row is no longer created from a request. On a project where pt_coach_access is empty,
+--    set the Edge Function secret PT_COACH_INITIAL_CODE (supabase secrets set PT_COACH_INITIAL_CODE=...) and the
+--    function stores its hash on first coach use. No credential is written into this repository.
 
 -- 2. Rate limiter: index the cleanup column and stop scanning the table on every request.
 create index if not exists pt_hub_rate_window_idx

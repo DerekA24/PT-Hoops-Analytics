@@ -40,7 +40,7 @@ POST `?action=coach_code`: coach code required in the header, `{code}` in the bo
 Dates must be real calendar dates within a year of today. Malformed input returns 400 and the client sets that record aside instead of retrying it.
 
 ## Deploying the November 11 hardening
-1. Apply `supabase/migrations/202611110001_harden_pt_hub.sql`. It seeds `pt_coach_access` with the hash of the current default code, so an anonymous caller can no longer claim the coach code on an empty table. It also registers the `Custom Drill` category, adds the `pt_game_situation_shots` player foreign key, and revokes direct API grants on function-only tables.
+1. Apply `supabase/migrations/202611110001_harden_pt_hub.sql`. The function no longer creates the coach code from a request. On a project whose `pt_coach_access` table is empty, set the function secret `PT_COACH_INITIAL_CODE` (at least 6 characters) before coaches use it; the existing production row keeps working unchanged. The migration also registers the `Custom Drill` category, adds the `pt_game_situation_shots` player foreign key, and revokes direct API grants on function-only tables.
 2. Deploy `supabase/functions/pt-hub/index.ts`. The new function accepts requests from the previous frontend.
 3. Publish `frontend/`. The new frontend's game-situation page uses the `situation` snapshot scope, which the old function rejects, so deploy the function first.
 4. Rotate the coach code from Coach Review once the school controls the project.
