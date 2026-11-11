@@ -354,6 +354,37 @@ main>section>h2:first-child,#coach>h2:first-child{margin-top:0!important}
 .heat-gradient{width:160px;height:10px;border-radius:20px;background:linear-gradient(90deg,#dc2626 0% 20%,#f97316 20% 40%,#facc15 40% 60%,#a3e635 60% 80%,#16a34a 80% 100%)}
 .heat-no-data:before{content:'';display:inline-block;width:10px;height:10px;background:#25313d;border:1px solid #64748b;margin-right:5px}
 .profile-chart-note{font-size:12px;line-height:1.5;margin:6px 0}
+.profile-game-stats{min-width:0;padding:15px 18px;border-top:3px solid var(--pt-red,#c63527)}
+.profile-game-stats h3{font-size:16px;margin:0 0 3px}
+.profile-game-stats>p{font-size:12px;line-height:1.4;margin:0 0 11px}
+.profile-game-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+.profile-game-heading p{font-size:12px;line-height:1.4;margin:3px 0 0}
+.profile-stats-toggle{display:flex;gap:4px;padding:4px;border:1px solid #53555f;border-radius:11px;background:#101115}
+.profile-stats-toggle button{min-height:36px;padding:7px 12px;border:0;background:transparent;font-size:12px;white-space:nowrap}
+.profile-stats-toggle button[aria-pressed="true"]{background:var(--pt-red,#c63527);color:#fff}
+.profile-game-detail[hidden]{display:none!important}
+.profile-game-detail+.profile-game-detail{border-top:1px solid #3e4b60;margin-top:14px;padding-top:12px}
+.profile-game-detail h4{font-size:12px;text-transform:uppercase;letter-spacing:.06em;margin:0 0 8px;color:#c7d3e2}
+.profile-game-detail>p{font-size:11px;margin:0 0 8px}
+.profile-game-stat-scroll{max-width:100%;overflow-x:auto;overscroll-behavior-x:contain}
+.profile-game-stat-row{display:grid;grid-template-columns:repeat(13,minmax(0,1fr));min-width:949px;gap:5px}
+.profile-game-stat-row.per-minute{grid-template-columns:repeat(10,minmax(0,1fr));min-width:730px}
+.profile-situation-stat-row{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.profile-situation-stat-row .profile-game-stat{padding:14px 8px}
+.profile-situation-stat-row .profile-game-stat small{font-size:12px;white-space:normal}
+.profile-situation-stat-row .profile-game-stat strong{font-size:24px}
+.profile-game-stat{min-width:0;text-align:center;padding:9px 4px;background:#101a28;border:1px solid #3e4b60;border-radius:9px;font-variant-numeric:tabular-nums}
+.profile-game-stat small{display:block;font-size:10px;font-weight:800;letter-spacing:.04em;white-space:nowrap}
+.profile-game-stat strong{display:block;margin-top:3px;font-size:17px;line-height:1.2}
+.profile-game-note,.profile-game-empty{font-size:11px;margin:8px 0 0}
+@media(max-width:760px){.profile-stats-toggle{width:100%}.profile-stats-toggle button{flex:1}.profile-situation-stat-row{gap:5px}.profile-situation-stat-row .profile-game-stat{padding:10px 4px}.profile-situation-stat-row .profile-game-stat small{font-size:10px}}
+@media(min-width:761px) and (max-width:1180px){
+ .profile-game-stats{padding:12px 10px}
+ .profile-game-stat-row,.profile-game-stat-row.per-minute{min-width:0;gap:3px}
+ .profile-game-stat{padding:8px 1px}
+ .profile-game-stat small{font-size:9px;letter-spacing:0}
+ .profile-game-stat strong{font-size:15px}
+}
 #profiles summary{cursor:pointer;font-weight:650;font-size:12px}
 .profile-data{padding:14px!important}.profile-data h3{font-size:16px;margin:0 0 10px}
 .profile-compact-stats{display:flex;gap:28px;margin:8px 0 14px}.profile-compact-stats span{display:flex;align-items:baseline;gap:8px}.profile-compact-stats small{font-size:11px}.profile-compact-stats strong{font-size:20px}
@@ -374,6 +405,13 @@ input[aria-invalid="true"]{border-color:#f76b5b}
 #otherLeaderboards>h2{margin-top:0!important;margin-bottom:12px}
 #otherLeaderboards .leaderboard-filters{padding:12px}
 #otherWall{grid-template-columns:repeat(2,minmax(0,1fr))}
+.other-leaderboard-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.other-leaderboard-heading h2{margin:0}
+.other-source-toggle{display:flex;gap:4px;padding:4px;border:1px solid #53555f;border-radius:12px;background:#101115}
+.other-source-toggle button{min-height:38px;padding:8px 14px;border:0;background:transparent;white-space:nowrap}
+.other-source-toggle button[aria-pressed="true"]{background:var(--pt-red,#c63527);color:#fff}
+#otherMinGamesField[hidden],#otherHudlNote[hidden],#otherDrillWins[hidden]{display:none!important}
+@media(max-width:600px){.other-source-toggle{width:100%}.other-source-toggle button{flex:1;min-width:0}}
 #otherWall table{min-width:0}
 #otherWall .scroll{overflow-x:auto}
 #otherWall th,#otherWall td{padding:7px 5px;font-size:12px}
@@ -453,6 +491,9 @@ body[data-page="live-game"]{overflow-y:visible!important;height:auto!important;m
 .live-court{max-height:clamp(300px,calc(100dvh - 310px),500px)}
 .live-court-score{display:flex;justify-content:center;align-items:center;gap:14px;padding:6px 0 2px;text-align:center}
 .live-court-score>span{font-size:12px;color:#b8c5d4}.live-court-score>strong{font-size:28px;font-weight:850;color:#fff;line-height:1.1}
+body[data-entry-mode="game-situation"] #liveResetScore,body[data-entry-mode="game-situation"] #liveResetRoster{min-height:30px;padding:5px 9px;font-size:11px;white-space:nowrap;background:#303b4b;border-color:#66758a}
+body[data-entry-mode="game-situation"] .live-players-panel>.live-panel-heading{padding-right:0}
+@media (min-width:768px) and (min-height:600px) and (pointer:coarse){body[data-entry-mode="game-situation"] #liveResetScore{order:3}}
 .live-last-entry{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end}
 #liveUndo{justify-self:end;align-self:end;min-width:72px}
 
@@ -611,13 +652,61 @@ body:not([data-page="live-game"]) .profile-data th,body:not([data-page="live-gam
 }
 
 /* Game Situation entry only needs the six shooting outcomes. */
-body[data-entry-mode="game-situation"] #liveStatButtons{grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:repeat(3,minmax(88px,auto));gap:12px}
-body[data-entry-mode="game-situation"] #liveStatButtons button{min-height:88px!important;padding:16px 12px;font-size:22px;line-height:1.2;font-weight:800}
-@media(max-width:767px){body[data-entry-mode="game-situation"] #liveStatButtons{grid-template-rows:repeat(3,minmax(76px,auto));gap:10px}body[data-entry-mode="game-situation"] #liveStatButtons button{min-height:76px!important;font-size:19px;padding:14px 10px}}
+body[data-entry-mode="game-situation"] #liveStatButtons{grid-template-columns:repeat(6,minmax(0,1fr));grid-template-rows:repeat(3,minmax(88px,auto)) minmax(58px,auto);gap:12px}
+body[data-entry-mode="game-situation"] #liveStatButtons button{grid-column:span 3;min-height:88px!important;padding:16px 12px;font-size:22px;line-height:1.2;font-weight:800}
+body[data-entry-mode="game-situation"] #liveStatButtons button.live-situation-extra{grid-column:span 2;min-height:58px!important;padding:10px 8px;font-size:17px;background:#293b4c;border-color:#55748d}
+@media(max-width:767px){body[data-entry-mode="game-situation"] #liveStatButtons{grid-template-rows:repeat(3,minmax(76px,auto)) minmax(52px,auto);gap:10px}body[data-entry-mode="game-situation"] #liveStatButtons button{min-height:76px!important;font-size:19px;padding:14px 10px}body[data-entry-mode="game-situation"] #liveStatButtons button.live-situation-extra{min-height:52px!important;font-size:16px}}
 
-/* A gentle phone tip for Game Situation entry. */
-@media (max-width:600px), (max-height:500px) and (pointer:coarse){
- .live-phone-notice.situation-phone-note{padding:14px 16px;border:1px solid #526b82;border-left:4px solid #7eabc9;background:#182a38;color:#edf5fb;margin-bottom:16px}
- .situation-phone-note strong{font-size:16px;line-height:1.35}
- .situation-phone-note p{font-size:13px;line-height:1.5;color:#c5d9e8;margin-top:6px}
+/* The custom player label covers the closed select; hide its native text at the arrow edge. */
+body[data-entry-mode="game-situation"] #livePlayerSlots .live-slot-dropdown select{color:transparent!important;-webkit-text-fill-color:transparent!important}
+body[data-entry-mode="game-situation"] #livePlayerSlots .live-slot-dropdown select option{color:#fff!important;-webkit-text-fill-color:#fff!important}
+@media (min-width:768px) and (min-height:600px) and (pointer:coarse){
+ body[data-entry-mode="game-situation"] #livePlayerSlots .live-player-activate{clip-path:polygon(0 0,calc(100% - 56px) 0,calc(100% - 56px) 52px,100% 52px,100% 100%,0 100%)}
+}
+
+.live-player-mobile{display:none}
+.live-player-empty-mobile{display:none}
+
+/* Phone Game Situation entry: compact court, two five-player rows, and nine quick actions. */
+@media (max-width:767px), (max-height:500px) and (pointer:coarse){
+ body[data-entry-mode="game-situation"] main{padding:4px 8px 20px!important}
+ body[data-entry-mode="game-situation"] .live-game-layout{display:grid;grid-template-columns:minmax(0,1fr);gap:7px}
+ body[data-entry-mode="game-situation"] .live-court-card{display:flex;flex-direction:column;gap:4px;padding:7px!important}
+ body[data-entry-mode="game-situation"] #liveScoreFooter{order:-1;display:flex;flex-wrap:nowrap;justify-content:space-between;gap:7px;padding:4px 3px 7px}
+ body[data-entry-mode="game-situation"] #liveScoreFooter>span{font-size:11px;white-space:nowrap}
+ body[data-entry-mode="game-situation"] #liveScoreFooter>#liveGameScore{font-size:20px;white-space:nowrap}
+ body[data-entry-mode="game-situation"] #liveResetScore{min-height:30px;padding:5px 7px;font-size:10px}
+ body[data-entry-mode="game-situation"] .live-court-surface{display:block;min-width:0}
+ body[data-entry-mode="game-situation"] .live-court-surface>.row{display:none}
+ body[data-entry-mode="game-situation"] #liveCourt{display:block;width:100%;max-width:260px;max-height:none;height:auto;min-height:0;margin:auto}
+ body[data-entry-mode="game-situation"] .live-control-box{display:block;overflow:visible}
+ body[data-entry-mode="game-situation"] .live-players-panel,body[data-entry-mode="game-situation"] .live-stats-panel{display:block;padding:8px}
+ body[data-entry-mode="game-situation"] .live-players-panel>.live-panel-heading{display:flex;align-items:center;justify-content:space-between;gap:6px;margin:0 0 6px;padding:0}
+ body[data-entry-mode="game-situation"] .live-panel-heading h3{font-size:13px}
+ body[data-entry-mode="game-situation"] #liveResetRoster{min-height:28px;padding:4px 7px;font-size:10px}
+ body[data-entry-mode="game-situation"] .live-team-headings,body[data-entry-mode="game-situation"] .live-tablet-teams{display:none}
+ body[data-entry-mode="game-situation"] #livePlayerSlots{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));grid-template-rows:12px 40px 12px 40px;grid-auto-rows:40px;gap:4px;min-height:0}
+ body[data-entry-mode="game-situation"] #livePlayerSlots::before,body[data-entry-mode="game-situation"] #livePlayerSlots::after{grid-column:1/-1;align-self:end;font-size:10px;font-weight:800;letter-spacing:.05em;line-height:1}
+ body[data-entry-mode="game-situation"] #livePlayerSlots::before{content:"RED";order:-1;color:#f37c83}
+ body[data-entry-mode="game-situation"] #livePlayerSlots::after{content:"WHITE";order:1;color:#e4eaf1}
+ body[data-entry-mode="game-situation"] #livePlayerSlots [data-live-team-slot="pt"]{order:0}
+ body[data-entry-mode="game-situation"] #livePlayerSlots [data-live-team-slot="opponent"]{order:2}
+ body[data-entry-mode="game-situation"] #livePlayerSlots .live-slot-dropdown,body[data-entry-mode="game-situation"] #livePlayerSlots .live-slot-dropdown select{min-height:40px!important;height:40px}
+ body[data-entry-mode="game-situation"] #livePlayerSlots .live-slot-dropdown select{padding:0 18px 0 2px;font-size:10px!important}
+ body[data-entry-mode="game-situation"] #livePlayerSlots .live-player-activate{right:19px;padding:0 2px;font-size:9px;line-height:1.1;text-align:center;white-space:nowrap;text-overflow:ellipsis}
+ body[data-entry-mode="game-situation"] #livePlayerSlots .live-player-number,body[data-entry-mode="game-situation"] #livePlayerSlots .live-player-name{display:none}
+ body[data-entry-mode="game-situation"] #livePlayerSlots .live-player-mobile{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
+ body[data-entry-mode="game-situation"] #livePlayerSlots .live-player-empty-standard{display:none}
+ body[data-entry-mode="game-situation"] #livePlayerSlots .live-player-empty-mobile{display:inline}
+ body[data-entry-mode="game-situation"] #livePlayerSlots .live-player-arrow{right:2px;top:50%;width:15px;height:15px;border-width:1px;font-size:11px}
+ body[data-entry-mode="game-situation"] #liveRosterNote{margin-top:5px}
+ body[data-entry-mode="game-situation"] .live-stats-panel{border-top:1px solid #3d4857}
+ body[data-entry-mode="game-situation"] .live-stats-panel>.live-panel-heading{display:flex;gap:5px;margin:0 0 6px}
+ body[data-entry-mode="game-situation"] .live-stats-panel .live-panel-heading p{font-size:10px}
+ body[data-entry-mode="game-situation"] #liveStatButtons{grid-template-columns:repeat(6,minmax(0,1fr));grid-template-rows:repeat(3,40px) 38px;gap:5px}
+ body[data-entry-mode="game-situation"] #liveStatButtons button{min-height:40px!important;padding:5px 3px;font-size:13px}
+ body[data-entry-mode="game-situation"] #liveStatButtons button.live-situation-extra{min-height:38px!important;padding:5px 2px;font-size:12px}
+ body[data-entry-mode="game-situation"] .live-last-entry{min-height:26px;margin-top:6px}
+ body[data-entry-mode="game-situation"] .live-last-entry p{font-size:10px}
+ body[data-entry-mode="game-situation"] #liveUndo{min-height:28px;min-width:50px;padding:4px 6px;font-size:10px}
 }

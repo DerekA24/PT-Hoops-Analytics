@@ -104,10 +104,10 @@ if($('athleteCategory')){$('athleteCategory').addEventListener('change',drawQuic
 drawQuickCategories();
 state.corrections=Array.isArray(state.corrections)?state.corrections:[];
 function drillLabel(name){return name==='Midrange'?'Midrange (Unspecified)':name}
-function getDrillTypes(){return [...new Set(['Free Throws','Top of Key 3','Wing 3 Left','Wing 3 Right','Slot 3 Left','Slot 3 Right','Corner 3 Left','Corner 3 Right','Midrange Low','Midrange High','Floaters','Finishing / Layups','Contested Shots','Custom Drill',...state.shooting.map(x=>String(x.type||'Other'))])].sort()}
+function getDrillTypes(){return [...new Set(['Free Throws','Top of Key 3','Wing 3 Left','Wing 3 Right','Slot 3 Left','Slot 3 Right','Corner 3 Left','Corner 3 Right','Midrange Corner Left','Midrange Corner Right','Midrange Wing Left','Midrange Wing Right','Midrange Key','Floaters','Finishing / Layups','Contested Shots','Custom Drill',...state.shooting.map(x=>String(x.type||'Other'))])].sort()}
 function syncFilterSelect(id,options){const el=$(id);if(!el)return;const value=el.value;el.innerHTML='<option value="">All '+(id==='lbCategory'?'Shooting Drills':'Drills')+'</option>'+options.map(x=>`<option value="${esc(x)}">${esc(drillLabel(x))}</option>`).join('');el.value=options.includes(value)?value:''}
 function leaderboardDrills(records=state.shooting){
- const defaults=['Free Throws','Top of Key 3','Wing 3 Left','Wing 3 Right','Slot 3 Left','Slot 3 Right','Corner 3 Left','Corner 3 Right','Midrange Low','Midrange High','Floaters','Finishing / Layups','Contested Shots'];
+ const defaults=['Free Throws','Top of Key 3','Wing 3 Left','Wing 3 Right','Slot 3 Left','Slot 3 Right','Corner 3 Left','Corner 3 Right','Midrange Corner Left','Midrange Corner Right','Midrange Wing Left','Midrange Wing Right','Midrange Key','Floaters','Finishing / Layups','Contested Shots'];
  const extras=records.filter(x=>x.type==='Custom Drill'&&String(x.drill||'').trim()).map(x=>'Custom: '+String(x.drill).trim());
  const other=records.filter(x=>x.type!=='Custom Drill').map(x=>String(x.type||'Other'));
  const generic=records.some(x=>x.type==='Custom Drill'&&!String(x.drill||'').trim())?['Custom Drill']:[];

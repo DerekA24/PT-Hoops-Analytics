@@ -111,7 +111,7 @@
     }
     if(blocked)label(blocked,true);
    }catch(e){label('Shot saved on this device. Cloud retry pending: '+e.message,true)}finally{busy=false}}
- const validSituationShot=shot=>uuid.test(shot.id)&&uuid.test(shot.playerId)&&/^\d{4}-\d{2}-\d{2}$/.test(shot.date||'')&&/^(TWO|THREE|FT)_[MX]$/.test(shot.type||'')&&Number.isInteger(shot.x)&&shot.x>=12&&shot.x<=488&&Number.isInteger(shot.y)&&shot.y>=12&&shot.y<=458&&Number.isFinite(Date.parse(shot.recordedAt));
+ const validSituationShot=shot=>uuid.test(shot.id)&&uuid.test(shot.playerId)&&/^\d{4}-\d{2}-\d{2}$/.test(shot.date||'')&&(/^(TWO|THREE|FT)_[MX]$/.test(shot.type||'')||['REB','DRB','ORB','TO'].includes(shot.type))&&Number.isInteger(shot.x)&&shot.x>=12&&shot.x<=488&&Number.isInteger(shot.y)&&shot.y>=12&&shot.y<=458&&Number.isFinite(Date.parse(shot.recordedAt));
  const legacySituationShot=(event,session)=>({id:event.id,playerId:event.playerId,date:session.date,type:event.type,x:event.x,y:event.y,recordedAt:event.recordedAt||session.createdAt||(session.date?session.date+'T12:00:00Z':''),undone:false});
  async function syncGameSituationShots(){
   if(situationSyncing)return;
@@ -121,8 +121,18 @@
     if(!validSituationShot(shot))continue;
     if(!cloudSituationShots.has(shot.id)){
      if(shot.undone)continue;
-     try{await request('game_situation_shot','POST',{id:shot.id,player_id:shot.playerId,practice_date:shot.date,shot_type:shot.type,court_x:shot.x,court_y:shot.y,recorded_at:shot.recordedAt,owner_token:ownerToken(shot.id)})}
-     catch(e){if(!isClientError(e))throw e;reject(shot.id,e.message);cloudSituationShots.set(shot.id,true);label('A game situation shot was rejected by the shared database: '+e.message,true);continue}
+     const payload={id:shot.id,player_id:shot.playerId,practice_date:shot.date,shot_type:shot.type,court_x:shot.x,court_y:shot.y,recorded_at:shot.recordedAt,owner_token:ownerToken(shot.id)};
+     try{await request('game_situation_shot','POST',payload)}
+     catch(e){
+      if(!isClientError(e))throw e;
+      // Older deployed functions know REB but not DRB. Keep the local DRB event,
+      // and store its identical event ID as legacy REB until the function is updated.
+      if(shot.type==='DRB'){
+       try{await request('game_situation_shot','POST',{...payload,shot_type:'REB'});cloudSituationShots.set(shot.id,false);continue}
+       catch(fallbackError){if(!isClientError(fallbackError))throw fallbackError;e=fallbackError}
+      }
+      reject(shot.id,e.message);cloudSituationShots.set(shot.id,true);label('A game situation shot was rejected by the shared database: '+e.message,true);continue;
+     }
      cloudSituationShots.set(shot.id,false);
     }
     if(shot.undone&&!cloudSituationShots.get(shot.id)){
@@ -146,6 +156,10 @@
   const currentScope=playerPage&&!uuid.test(selectedId)?'entry':scope();
   try{const data=await request('snapshot','GET',null,'','&scope='+currentScope+(currentScope==='player'?'&player_id='+encodeURIComponent(selectedId):''));let addedPlayers=0,addedShots=0,addedResults=0,changedShots=0;
    roster=new Map(data.players.map(p=>[p.id,p]));drills=new Map(data.drills.map(d=>[d.name.toLowerCase(),d.id]));
+   if(playerPage&&currentScope==='player'&&Array.isArray(data.playerGames)&&document.getElementById('profilePlayer')?.value===selectedId){
+    window.ptPlayerGameSnapshot={playerId:selectedId,games:data.playerGames};
+    renderProfile();
+   }
    if((currentScope==='full'||currentScope==='coach'||currentScope==='schedule'||currentScope==='schedule-only')&&Array.isArray(data.scheduleRecords)){
     const remote=data.scheduleRecords.flatMap(record=>record.payload&&typeof record.payload==='object'?[record.payload]:[]);
     const remoteSchedule=remote.flatMap(record=>Array.isArray(record.schedule)?record.schedule:[]);
@@ -166,13 +180,15 @@
     const sessions=new Map((state.gameSituations||[]).filter(game=>game?.id).map(game=>[game.id,game]));
     for(const record of data.gameSituations||[])if(record.payload?.id&&!sessions.has(record.payload.id))sessions.set(record.payload.id,record.payload);
     for(const session of sessions.values()){
-     for(const event of session.events||[]){if(!/^(TWO|THREE|FT)_[MX]$/.test(event.type||'')||shots.has(event.id))continue;const shot=legacySituationShot(event,session);if(validSituationShot(shot))shots.set(shot.id,shot)}
+     for(const event of session.events||[]){if(!validSituationShot(legacySituationShot(event,session))||shots.has(event.id))continue;shots.set(event.id,legacySituationShot(event,session))}
      const beforeUndo=(session.events||[]).length;
      session.events=(session.events||[]).filter(event=>!shots.get(event.id)?.undone);
      if(session.events.length!==beforeUndo){
       const points=event=>event.type==='TWO_M'?2:event.type==='THREE_M'?3:event.type==='FT_M'?1:0;
-      session.teamScore=session.events.filter(event=>event.team!=='opponent').reduce((total,event)=>total+points(event),0);
-      session.opponentScore=session.events.filter(event=>event.team==='opponent').reduce((total,event)=>total+points(event),0);
+      const lastReset=session.events.findLastIndex(event=>event.type==='RESET_SCORE');
+      const scoringEvents=session.events.slice(lastReset+1);
+      session.teamScore=scoringEvents.filter(event=>event.team!=='opponent').reduce((total,event)=>total+points(event),0);
+      session.opponentScore=scoringEvents.filter(event=>event.team==='opponent').reduce((total,event)=>total+points(event),0);
       session.oppScore=session.opponentScore;
      }
     }
