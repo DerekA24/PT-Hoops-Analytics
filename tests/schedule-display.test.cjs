@@ -54,3 +54,11 @@ test('a past game without a result remains visible', () => {
   assert.match(html,/University/);
   assert.match(html,/Result pending/);
 });
+
+test('a game in progress today shows its live score instead of Upcoming', () => {
+  const html = renderSchedule([{id:'today',date:'2026-11-10',time:'19:30',opponent:'Roncalli',location:'Home'}],
+    [{id:'live',scheduleId:'today',date:'2026-11-10',opponent:'Roncalli',played:true,final:false,teamScore:41,opponentScore:38,events:[{id:'e1',type:'TWO_M'}]}]);
+  assert.match(html,/41 – 38/);
+  assert.match(html,/In progress/);
+  assert.doesNotMatch(html,/Upcoming/);
+});

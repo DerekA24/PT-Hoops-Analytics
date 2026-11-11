@@ -27,11 +27,23 @@ Midrange Low and Midrange High are separate practice-entry categories, leaderboa
 Frontend: commit and test source in school-owned Git, and publish via the EXISTING `ptbasketballhub` Netlify project after authorized review. Never create a replacement project without school approval. Backend: deploy `supabase/functions/pt-hub/index.ts` only via authorized Supabase admin access. A domain change requires updating the server's allowed Origin and Supabase Authentication redirect settings.
 
 ## Supabase API actions
-GET `?action=snapshot`: shared players/drills/shots.
-POST `?action=shot`: public shot entry.
-POST `?action=player`: valid coach access code required.
+GET `?action=snapshot&scope=full|coach|player|schedule|schedule-only|entry|situation`: shared players, drills, shots, drill results, schedule records, and game-situation shots, trimmed to what each page needs.
+POST `?action=shot`: public shot entry. Optional `label` stores a custom drill name in `notes`.
+POST `?action=drill_result`: public drill win or loss.
+POST `?action=game_situation_shot`: public Red vs White shot. PATCH with `{undone:true}` hides one; without a coach code the server only accepts undo for shots recorded in the last 24 hours.
+DELETE `?action=shot`: without a coach code, removes a shot recorded in the last 15 minutes (athlete Undo). With a valid coach code, removes any shot.
+POST `?action=player`: coach code required. `active:false` deactivates a player. Active roster is capped at 150.
 PATCH `?action=shot`: coach correction with valid access code.
-DELETE `?action=shot`: coach deletion with valid access code.
+POST `?action=schedule_sync`: coach code required. Always writes the single shared schedule record.
+POST `?action=coach_code`: coach code required in the header, `{code}` in the body. Rotates the shared code; the Coach Review "Change Code" tool calls this before saving locally.
+
+Dates must be real calendar dates within a year of today. Malformed input returns 400 and the client sets that record aside instead of retrying it.
+
+## Deploying the November 11 hardening
+1. Apply `supabase/migrations/202611110001_harden_pt_hub.sql`. It seeds `pt_coach_access` with the hash of the current default code, so an anonymous caller can no longer claim the coach code on an empty table. It also registers the `Custom Drill` category, adds the `pt_game_situation_shots` player foreign key, and revokes direct API grants on function-only tables.
+2. Deploy `supabase/functions/pt-hub/index.ts`. The new function accepts requests from the previous frontend.
+3. Publish `frontend/`. The new frontend's game-situation page uses the `situation` snapshot scope, which the old function rejects, so deploy the function first.
+4. Rotate the coach code from Coach Review once the school controls the project.
 
 ## Critical limitations
 * Web visitors can submit shots anonymously; the Origin header is NOT an access-control mechanism. School administration should evaluate student privacy and abuse prevention.

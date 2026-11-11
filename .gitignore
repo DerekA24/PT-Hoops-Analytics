@@ -43,3 +43,6 @@ pnpm-debug.log*
 !.vscode/extensions.json
 !.vscode/settings.json
 .idea/
+
+# Browser automation artifacts
+.playwright-mcp/
