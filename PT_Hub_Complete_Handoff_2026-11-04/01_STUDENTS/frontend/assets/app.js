@@ -5,6 +5,7 @@ if(!state||!Array.isArray(state.players)||!Array.isArray(state.games))state={pla
 state.shooting=Array.isArray(state.shooting)?state.shooting:[];
 state.court=Array.isArray(state.court)?state.court:[];
 state.gameSituations=Array.isArray(state.gameSituations)?state.gameSituations:[];
+state.gameSituationShots=Array.isArray(state.gameSituationShots)?state.gameSituationShots:[];
 state.schedule=Array.isArray(state.schedule)?state.schedule:[];
 state.corrections=Array.isArray(state.corrections)?state.corrections:[];
 state.hiddenBoards=Array.isArray(state.hiddenBoards)?state.hiddenBoards:[];
@@ -54,7 +55,7 @@ if($('rosterRows')&&$('editName')&&$('editNumber')&&$('editGrade')&&$('editPosit
 if($('cancelPlayer')&&$('rosterEditor')){$('cancelPlayer').onclick=()=>$('rosterEditor').hidden=true;}
 if($('savePlayer')&&$('editName')&&$('editNumber')&&$('editGrade')&&$('editPosition')&&$('rosterEditor')){$('savePlayer').onclick=()=>{const p=state.players.find(p=>p.id===editPlayer),name=$('editName').value.trim(),number=$('editNumber').value.trim();if(!p||!name||!validNumber(number))return toast('Enter valid name and jersey');if(state.players.some(x=>x.id!==p.id&&+x.number===+number))return toast('Jersey already used');Object.assign(p,{name,number,grade:$('editGrade').value,position:$('editPosition').value});$('rosterEditor').hidden=true;save()};}
 if($('export')){$('export').onclick=()=>{const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='PT_Basketball_Backup.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)};}
-if($('import')){$('import').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{const v=JSON.parse(await f.text());if(!Array.isArray(v.players)||!Array.isArray(v.games)||!Array.isArray(v.shooting)||!Array.isArray(v.court))throw Error('Invalid file format');if(confirm('Replace all data on this device with this backup?')){state=v;state.gameSituations=Array.isArray(state.gameSituations)?state.gameSituations:[];state.drillResults=Array.isArray(state.drillResults)?state.drillResults:[];state.schedule=Array.isArray(state.schedule)?state.schedule:[];save()}}catch(err){alert('Import failed: '+err.message)}e.target.value=''};}
+if($('import')){$('import').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{const v=JSON.parse(await f.text());if(!Array.isArray(v.players)||!Array.isArray(v.games)||!Array.isArray(v.shooting)||!Array.isArray(v.court))throw Error('Invalid file format');if(confirm('Replace all data on this device with this backup?')){state=v;state.gameSituations=Array.isArray(state.gameSituations)?state.gameSituations:[];state.gameSituationShots=Array.isArray(state.gameSituationShots)?state.gameSituationShots:[];state.drillResults=Array.isArray(state.drillResults)?state.drillResults:[];state.schedule=Array.isArray(state.schedule)?state.schedule:[];save()}}catch(err){alert('Import failed: '+err.message)}e.target.value=''};}
 window.addEventListener('offline',()=>setStorageStatus('Offline · Saved on this device · No shared sync',false));
 window.addEventListener('online',()=>setStorageStatus('Online · Saved on this device · No shared sync',false));
 const RECENT_KEY='pt-basketball-recent-athletes-v1';
@@ -95,10 +96,10 @@ if($('athleteCategory')){$('athleteCategory').addEventListener('change',drawQuic
 drawQuickCategories();
 state.corrections=Array.isArray(state.corrections)?state.corrections:[];
 function drillLabel(name){return name==='Midrange'?'Midrange (Unspecified)':name}
-function getDrillTypes(){return [...new Set(['Free Throws','Top of Key 3','Wing 3','Slot 3','Corner 3','Midrange Low','Midrange High','Floaters','Finishing / Layups','Contested Shots','Custom Drill',...state.shooting.map(x=>String(x.type||'Other'))])].sort()}
+function getDrillTypes(){return [...new Set(['Free Throws','Top of Key 3','Wing 3 Left','Wing 3 Right','Slot 3 Left','Slot 3 Right','Corner 3 Left','Corner 3 Right','Midrange Low','Midrange High','Floaters','Finishing / Layups','Contested Shots','Custom Drill',...state.shooting.map(x=>String(x.type||'Other'))])].sort()}
 function syncFilterSelect(id,options){const el=$(id);if(!el)return;const value=el.value;el.innerHTML='<option value="">All '+(id==='lbCategory'?'Shooting Drills':'Drills')+'</option>'+options.map(x=>`<option value="${esc(x)}">${esc(drillLabel(x))}</option>`).join('');el.value=options.includes(value)?value:''}
 function leaderboardDrills(records=state.shooting){
- const defaults=['Free Throws','Top of Key 3','Wing 3','Slot 3','Corner 3','Midrange Low','Midrange High','Floaters','Finishing / Layups','Contested Shots'];
+ const defaults=['Free Throws','Top of Key 3','Wing 3 Left','Wing 3 Right','Slot 3 Left','Slot 3 Right','Corner 3 Left','Corner 3 Right','Midrange Low','Midrange High','Floaters','Finishing / Layups','Contested Shots'];
  const extras=records.filter(x=>x.type==='Custom Drill'&&String(x.drill||'').trim()).map(x=>'Custom: '+String(x.drill).trim());
  const other=records.filter(x=>x.type!=='Custom Drill').map(x=>String(x.type||'Other'));
  const generic=records.some(x=>x.type==='Custom Drill'&&!String(x.drill||'').trim())?['Custom Drill']:[];
@@ -128,7 +129,7 @@ function drillMatches(x,category){
 }
 let leaderboardSource='practice';
 function leaderboardRecords(){
- return profileRecords({allDates:true,source:leaderboardSource,player:null}).map(shot=>leaderboardSource==='game'?{...shot,type:profileZones.find(zone=>zone.id===shot.zone)?.name||profileCategory(shot)}:shot);
+ return profileRecords({allDates:true,source:leaderboardSource,player:null}).filter(shot=>!isTestPlayerId(shot.playerId)).map(shot=>leaderboardSource==='game'?{...shot,type:profileZones.find(zone=>zone.id===shot.zone)?.name||profileCategory(shot)}:shot);
 }
 function syncLeaderboardSource(){
  for(const button of document.querySelectorAll('[data-lb-source]')){const active=button.dataset.lbSource===leaderboardSource;button.classList.toggle('active',active);button.setAttribute('aria-pressed',String(active))}

@@ -23,25 +23,33 @@
  $('hudlImportDialog').addEventListener('close',()=>{hudlPermit=false});
  window.addEventListener('pagehide',()=>{editPermit=false;hudlPermit=false;schedulePermit=false;for(const id of ['scheduleGameDialog','hudlImportDialog'])if($(id).open)$(id).close();if(resolveCoach)finishCoach(false)});
  function gameEntries(){
-  const used=new Set(),entries=state.schedule.map(s=>{
-   const game=state.games.find(g=>!used.has(g.id)&&(g.scheduleId===s.id||g.id===s.id||sameGame(g,s)));
+  const used=new Set(),scheduleIds=new Set(state.schedule.map(s=>s.id)),entries=state.schedule.map(s=>{
+   const game=state.games.find(g=>!used.has(g.id)&&(g.scheduleId===s.id||g.id===s.id))||state.games.find(g=>!used.has(g.id)&&sameGame(g,s)&&(!g.scheduleId||!scheduleIds.has(g.scheduleId)));
    if(game)used.add(game.id);return {key:'s:'+s.id,schedule:s,game};
   });
   for(const game of state.games)if(!used.has(game.id))entries.push({key:'g:'+game.id,game,schedule:null});
-  return entries.sort((a,b)=>String((a.schedule||a.game).date||'').localeCompare(String((b.schedule||b.game).date||''))||String((a.schedule||a.game).time||'').localeCompare(String((b.schedule||b.game).time||'')));
+  const distinct=new Map();
+  for(const entry of entries){
+   const item=entry.schedule||entry.game,key=[item.date||'',norm(item.opponent),item.time||'',item.location||''].join('|'),prior=distinct.get(key);
+   if(!prior||entry.game&&!prior.game)distinct.set(key,entry);
+  }
+  return [...distinct.values()].sort((a,b)=>String((a.schedule||a.game).date||'').localeCompare(String((b.schedule||b.game).date||''))||String((a.schedule||a.game).time||'').localeCompare(String((b.schedule||b.game).time||'')));
  }
  const findEntry=key=>gameEntries().find(entry=>entry.key===key);
  const isPlayed=entry=>!!(entry.game?.played||entry.game?.final||entry.game?.playerStats?.length||entry.game?.events?.length||entry.schedule?.played);
  function hudlLink(value){try{const url=new URL(value);return url.protocol==='https:'&&(url.hostname==='hudl.com'||url.hostname.endsWith('.hudl.com'))?url.href:''}catch{return ''}}
  function dateText(value){const date=new Date(String(value)+'T12:00:00');return Number.isFinite(date.getTime())?new Intl.DateTimeFormat('en-US',{month:'short',day:'numeric',year:'numeric'}).format(date):'Date TBD'}
  function timeText(value){const match=/^(\d{1,2}):(\d{2})$/.exec(value||'');if(!match)return value||'Time TBD';const hour=Number(match[1]);return (hour%12||12)+':'+match[2]+(hour<12?' AM':' PM')}
+ function scheduleToday(){const parts=Object.fromEntries(new Intl.DateTimeFormat('en-US',{timeZone:'America/Indiana/Indianapolis',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date()).map(part=>[part.type,part.value]));return `${parts.year}-${parts.month}-${parts.day}`}
  function render(){
-  const entries=gameEntries();
+  const entries=gameEntries(),currentDate=scheduleToday();
   $('scheduleGameList').innerHTML=entries.length?entries.map(entry=>{
    const item=entry.schedule||entry.game,game=entry.game||{},played=isPlayed(entry),link=hudlLink(item.hudlUrl||game.hudlUrl);
    const own=game.teamScore??item.teamScore,opponent=game.opponentScore??game.oppScore??item.opponentScore;
-   const score=played?(own!==null&&own!==undefined&&opponent!==null&&opponent!==undefined?`${esc(own)} – ${esc(opponent)}`:'Score not recorded'):'Upcoming';
-   return `<article class="schedule-game" data-game-key="${esc(entry.key)}"><div class="schedule-game-date"><strong>${esc(dateText(item.date))}</strong><small>${esc(timeText(item.time||game.time))}</small></div><div class="schedule-game-opponent"><span class="muted">${item.location==='Away'?'@':item.location==='Neutral'?'vs · Neutral':'vs'}</span> <strong>${esc(item.opponent||'Opponent TBD')}</strong></div><div class="schedule-game-score ${played?'played':''}"><strong>${score}</strong>${played?'<small>Park Tudor – Opponent</small>':''}</div><div class="schedule-game-actions">${link?`<a class="schedule-link" href="${esc(link)}" target="_blank" rel="noopener noreferrer">Open Hudl</a>`:''}<button type="button" data-upload-hudl="${esc(entry.key)}">${game.playerStats?.length?'Replace Hudl Stats':'Upload Hudl Stats'}</button><button type="button" data-edit-game="${esc(entry.key)}">${link?'Edit':'Edit / Add Hudl Link'}</button></div></article>`;
+   const reached=String(item.date||'')<=currentDate,completed=reached&&(game.final||entry.schedule?.played||game.statsImport||String(item.date||'')<currentDate&&played);
+   const hasScore=own!==null&&own!==undefined&&opponent!==null&&opponent!==undefined;
+   const score=!reached?'Upcoming':completed?(hasScore?`${esc(own)} – ${esc(opponent)}`:'Score not recorded'):String(item.date||'')===currentDate?'Upcoming':'Result pending';
+   return `<article class="schedule-game" data-game-key="${esc(entry.key)}"><div class="schedule-game-date"><strong>${esc(dateText(item.date))}</strong><small>${esc(timeText(item.time||game.time))}</small></div><div class="schedule-game-opponent"><span class="muted">${item.location==='Away'?'@':item.location==='Neutral'?'vs · Neutral':'vs'}</span> <strong>${esc(item.opponent||'Opponent TBD')}</strong></div><div class="schedule-game-score ${completed?'played':''}"><strong>${score}</strong>${completed&&hasScore?'<small>Park Tudor – Opponent</small>':''}</div><div class="schedule-game-actions">${link?`<a class="schedule-link" href="${esc(link)}" target="_blank" rel="noopener noreferrer">Open Hudl</a>`:''}<button type="button" data-upload-hudl="${esc(entry.key)}">${game.playerStats?.length?'Replace Hudl Stats':'Upload Hudl Stats'}</button><button type="button" data-edit-game="${esc(entry.key)}">${link?'Edit':'Edit / Add Hudl Link'}</button></div></article>`;
   }).join(''):'<div class="card"><p>No games scheduled yet. Add a game or import your schedule CSV.</p></div>';
  }
  function scoreFields(){$('scheduleScoreFields').hidden=!$('schedulePlayed').checked}
@@ -175,4 +183,5 @@
  window.renderSchedulePage=render;
  window.seedSeasonSchedule?.();
  render();
+ setInterval(()=>{if(document.visibilityState==='visible')render()},60000);
 })();
