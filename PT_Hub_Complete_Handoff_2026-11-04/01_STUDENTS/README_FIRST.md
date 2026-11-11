@@ -30,8 +30,8 @@ Frontend: commit and test source in school-owned Git, and publish via the EXISTI
 GET `?action=snapshot&scope=full|coach|player|schedule|schedule-only|entry|situation`: shared players, drills, shots, drill results, schedule records, and game-situation shots, trimmed to what each page needs.
 POST `?action=shot`: public shot entry. Optional `label` stores a custom drill name in `notes`.
 POST `?action=drill_result`: public drill win or loss.
-POST `?action=game_situation_shot`: public Red vs White shot. PATCH with `{undone:true}` hides one; without a coach code the server only accepts undo for shots recorded in the last 24 hours.
-DELETE `?action=shot`: without a coach code, removes a shot recorded in the last 15 minutes (athlete Undo). With a valid coach code, removes any shot.
+POST `?action=game_situation_shot`: public Red vs White shot. PATCH with `{undone:true}` hides one; without a coach code the body must carry the uploading device's `owner_token` and the shot must be under 24 hours old.
+DELETE `?action=shot`: without a coach code, the body must carry the `owner_token` the uploading device generated, and the shot must be under 15 minutes old (athlete Undo). With a valid coach code, removes any shot.
 POST `?action=player`: coach code required. `active:false` deactivates a player. Active roster is capped at 150.
 PATCH `?action=shot`: coach correction with valid access code.
 POST `?action=schedule_sync`: coach code required. Always writes the single shared schedule record.

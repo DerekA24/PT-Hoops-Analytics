@@ -12,12 +12,18 @@
  const scope=()=>fullPages.has(page)?'full':coachPage&&window.PTCoachAccess?.isUnlocked()?'coach':page==='schedule.html'?'schedule-only':schedulePages.has(page)?'schedule':playerPage?'player':situationPage?'situation':'entry';
  const shotIds=new Set(state.shooting.map(s=>s.id));
  const knownPlayers=new Set(state.players.map(p=>p.id));
- const pendingKey='pt_hub_pending_v1',rejectedKey='pt_hub_rejected_v1',cloudPlayersKey='pt_hub_cloud_players_v1',pendingResultsKey='pt_hub_pending_drill_results_v1';
+ const pendingKey='pt_hub_pending_v1',rejectedKey='pt_hub_rejected_v1',cloudPlayersKey='pt_hub_cloud_players_v1',pendingResultsKey='pt_hub_pending_drill_results_v1',tokensKey='pt_hub_owner_tokens_v1',MAX_OWNER_TOKENS=5000;
  const readJson=(key,fallback)=>{try{const value=JSON.parse(localStorage.getItem(key)||'null');return value??fallback}catch{return fallback}};
  const writeJson=(key,value)=>{try{localStorage.setItem(key,JSON.stringify(value))}catch{}};
  let pending=readJson(pendingKey,[]).filter(id=>typeof id==='string');
  let rejected=readJson(rejectedKey,[]).filter(x=>x&&typeof x==='object'&&typeof x.id==='string');
  let cloudPlayerIds=new Set(readJson(cloudPlayersKey,[]).filter(id=>typeof id==='string'));
+ // Each uploaded shot carries a random owner token so this device, and only this device, can undo it without a coach code.
+ let ownerTokens=readJson(tokensKey,{});if(!ownerTokens||typeof ownerTokens!=='object'||Array.isArray(ownerTokens))ownerTokens={};
+ const randomToken=()=>{const bytes=new Uint8Array(24);if(typeof crypto!=='undefined'&&crypto.getRandomValues)crypto.getRandomValues(bytes);else for(let i=0;i<bytes.length;i++)bytes[i]=Math.random()*256|0;return Array.from(bytes,b=>b.toString(16).padStart(2,'0')).join('')};
+ const rememberTokens=()=>{const keys=Object.keys(ownerTokens);if(keys.length>MAX_OWNER_TOKENS)for(const key of keys.slice(0,keys.length-MAX_OWNER_TOKENS))delete ownerTokens[key];writeJson(tokensKey,ownerTokens)};
+ const ownerToken=id=>{if(!ownerTokens[id]){ownerTokens[id]=randomToken();rememberTokens()}return ownerTokens[id]};
+ const forgetToken=id=>{if(ownerTokens[id]){delete ownerTokens[id];rememberTokens()}};
  let roster=new Map(),drills=new Map(),cloudShots=new Map(),cloudDrillResults=new Set(),cloudSituationShots=new Map(),situationLoaded=false,situationSyncing=false,legacySituationMode=false,cloudSituationSignature='',cloudScheduleSignature='',scheduleLoaded=false,busy=false,lastError='',resultRetryDelay=RETRY_BASE_MS,resultRetryTimer=null;
  const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  const status=document.createElement('div');status.id='ptSharedStatus';status.setAttribute('role','status');status.textContent='Connecting shared team data…';
@@ -46,7 +52,7 @@
   if(!cloudShots.has(id)&&!state.shooting.some(s=>s.id===id&&s.source==='supabase'))return;
   const jwt=await token();
   await request('shot','DELETE',{id},jwt);
-  cloudShots.delete(id);
+  cloudShots.delete(id);forgetToken(id);
   shotIds.delete(id);
   pending=pending.filter(x=>x!==id);
   remember();
@@ -99,7 +105,7 @@
       const drill=drills.get(String(s.type||'').toLowerCase());
       if(!drill){blocked=String(s.type||'This drill')+' needs database setup before it can sync. The shot is saved on this device.';index++;continue}
       const customLabel=/^custom drill$/i.test(String(s.type||''))&&s.drill&&s.drill!=='Athlete Quick Entry'?String(s.drill):'';
-      try{await request('shot','POST',{id:s.id,player_id:s.playerId,drill_id:drill,made:Number(s.makes)===1,practice_date:s.date,recorded_at:s.recordedAt,...(customLabel?{label:customLabel}:{})})}
+      try{await request('shot','POST',{id:s.id,player_id:s.playerId,drill_id:drill,made:Number(s.makes)===1,practice_date:s.date,recorded_at:s.recordedAt,owner_token:ownerToken(s.id),...(customLabel?{label:customLabel}:{})})}
       catch(e){if(!isClientError(e))throw e;reject(s.id,e.message);pending.splice(index,1);remember();label('A shot was rejected by the shared database: '+e.message,true);continue}
       cloudShots.set(s.id,{made:Number(s.makes)===1});pending.splice(index,1);remember();label('Shot saved to the shared team database');
     }
@@ -115,12 +121,14 @@
     if(!validSituationShot(shot))continue;
     if(!cloudSituationShots.has(shot.id)){
      if(shot.undone)continue;
-     try{await request('game_situation_shot','POST',{id:shot.id,player_id:shot.playerId,practice_date:shot.date,shot_type:shot.type,court_x:shot.x,court_y:shot.y,recorded_at:shot.recordedAt})}
+     try{await request('game_situation_shot','POST',{id:shot.id,player_id:shot.playerId,practice_date:shot.date,shot_type:shot.type,court_x:shot.x,court_y:shot.y,recorded_at:shot.recordedAt,owner_token:ownerToken(shot.id)})}
      catch(e){if(!isClientError(e))throw e;reject(shot.id,e.message);cloudSituationShots.set(shot.id,true);label('A game situation shot was rejected by the shared database: '+e.message,true);continue}
      cloudSituationShots.set(shot.id,false);
     }
     if(shot.undone&&!cloudSituationShots.get(shot.id)){
-     try{await request('game_situation_shot','PATCH',{id:shot.id,undone:true},credential())}
+     const code=credential();
+     if(!code&&!ownerTokens[shot.id]){label('This shot was recorded on another device. A coach can undo it from Coach Review.',true);cloudSituationShots.set(shot.id,true);continue}
+     try{await request('game_situation_shot','PATCH',{id:shot.id,undone:true,...(code?{}:{owner_token:ownerTokens[shot.id]})},code)}
      catch(e){if(!isClientError(e))throw e;label('Undo could not be shared: '+e.message,true)}
      cloudSituationShots.set(shot.id,true);
     }
@@ -253,7 +261,7 @@
  async function sendPlayer(p){try{if(!uuid.test(p.id))throw Error('Player ID is not a UUID');await request('player','POST',{id:p.id,full_name:p.name,jersey_number:p.number===''?null:p.number,grade:p.grade,position:p.position},await token());roster.set(p.id,p);cloudPlayerIds.add(p.id);writeJson(cloudPlayersKey,[...cloudPlayerIds]);if(p.dirty){delete p.dirty;persist()}label('Roster saved to Supabase')}catch(e){label('Roster cloud save failed: '+e.message,true)}}
  async function coachMutation(method,shot,made){try{await request('shot',method,{id:shot.id,...(method==='PATCH'?{made}:{})},await token());if(method==='PATCH'){cloudShots.set(shot.id,{made});delete shot.dirty;persist()}else cloudShots.delete(shot.id);label('Coach correction saved to Supabase')}catch(e){label('Coach correction not synchronized: '+e.message,true)}}
  // Shots removed on this device are removed from the cloud too. Without a coach code the server only honours recent entries (athlete Undo).
- async function removeShot(id){try{await request('shot','DELETE',{id},credential());cloudShots.delete(id);label('Shot removed from the shared team database')}catch(e){if(isClientError(e)){cloudShots.delete(id);label('Shot stays in the shared database: '+e.message+' Ask a coach to remove it in Coach Review.',true)}else label('Shot removal not synchronized: '+e.message,true)}}
+ async function removeShot(id){const code=credential();if(!code&&!ownerTokens[id]){cloudShots.delete(id);label('That shot was recorded on another device, so it stays in the shared database. A coach can remove it in Coach Review.',true);return}try{await request('shot','DELETE',{id,...(code?{}:{owner_token:ownerTokens[id]})},code);cloudShots.delete(id);forgetToken(id);label('Shot removed from the shared team database')}catch(e){if(isClientError(e)){cloudShots.delete(id);label('Shot stays in the shared database: '+e.message+' Ask a coach to remove it in Coach Review.',true)}else label('Shot removal not synchronized: '+e.message,true)}}
  if(playerPage)document.getElementById('profilePlayer')?.addEventListener('change',()=>load());
  load();setInterval(()=>{if(document.visibilityState==='visible'){noticeChanges();load()}},60000);document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'){noticeChanges();load()}});
 })();

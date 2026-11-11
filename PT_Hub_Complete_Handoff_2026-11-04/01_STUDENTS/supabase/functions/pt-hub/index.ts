@@ -22,6 +22,8 @@ const isoDate=(s:unknown):s is string=>{if(typeof s!=="string"||!/^\d{4}-\d{2}-\
 const isoStamp=(s:unknown):s is string=>{if(typeof s!=="string"||!/^\d{4}-\d{2}-\d{2}T/.test(s))return false;const t=Date.parse(s);return Number.isFinite(t)&&t>Date.now()-DATE_WINDOW_MS&&t<Date.now()+FUTURE_SLACK_MS};
 const stamp=(s:string)=>new Date(Math.min(Date.parse(s),Date.now())).toISOString();
 const courtPoint=(x:unknown,y:unknown)=>Number.isInteger(x)&&(x as number)>=12&&(x as number)<=488&&Number.isInteger(y)&&(y as number)>=12&&(y as number)<=458;
+const tokenOk=(t:unknown):t is string=>typeof t==="string"&&/^[A-Za-z0-9_-]{16,128}$/.test(t);
+const ownerHash=(t:string)=>sha256("pt-hub-owner:"+t);
 const sameHash=(a:string,b:string)=>{if(a.length!==b.length)return false;let diff=0;for(let i=0;i<a.length;i++)diff|=a.charCodeAt(i)^b.charCodeAt(i);return diff===0};
 async function sha256(text:string){const bytes=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(text));return Array.from(new Uint8Array(bytes),x=>x.toString(16).padStart(2,"0")).join("")}
 async function activePlayer(id:string){const {data}=await db.from("pt_players").select("id").eq("id",id).eq("active",true).maybeSingle();return !!data}
@@ -113,7 +115,7 @@ Deno.serve(async req=>{
  const [p,d]=await Promise.all([activePlayer(str(body.player_id)),db.from("pt_drills").select("id").eq("id",str(body.drill_id)).eq("active",true).maybeSingle()]);
  if(!p||!d.data)return fail("Unknown player or drill",403);
  const label=str(body.label).trim().slice(0,MAX_LABEL_CHARS);
- const {error}=await db.from("pt_shots").upsert({id,player_id:body.player_id,drill_id:body.drill_id,made:body.made,practice_date:body.practice_date,entered_by:null,notes:label||DEFAULT_NOTE,...(isoStamp(body.recorded_at)?{created_at:stamp(body.recorded_at)}:{})},{onConflict:"id",ignoreDuplicates:true});
+ const {error}=await db.from("pt_shots").upsert({id,player_id:body.player_id,drill_id:body.drill_id,made:body.made,practice_date:body.practice_date,entered_by:null,notes:label||DEFAULT_NOTE,owner_token_hash:tokenOk(body.owner_token)?await ownerHash(body.owner_token):null,...(isoStamp(body.recorded_at)?{created_at:stamp(body.recorded_at)}:{})},{onConflict:"id",ignoreDuplicates:true});
  return error?fail("Shot could not be saved",500):ok({ok:true,id});
  }
  if(req.method==="POST"&&action==="drill_result"){
@@ -125,15 +127,15 @@ Deno.serve(async req=>{
  if(action==="game_situation_shot"&&req.method==="POST"){
   if(!uuid.test(id)||!uuid.test(str(body.player_id))||!isoDate(body.practice_date)||!SHOT_TYPES.includes(str(body.shot_type))||!isoStamp(body.recorded_at)||!courtPoint(body.court_x,body.court_y))return fail("Invalid game situation shot");
   if(!await activePlayer(str(body.player_id)))return fail("Unknown player",403);
-  const {error}=await db.from("pt_game_situation_shots").upsert({id,player_id:body.player_id,practice_date:body.practice_date,shot_type:body.shot_type,court_x:body.court_x,court_y:body.court_y,recorded_at:stamp(body.recorded_at)},{onConflict:"id",ignoreDuplicates:true});
+  const {error}=await db.from("pt_game_situation_shots").upsert({id,player_id:body.player_id,practice_date:body.practice_date,shot_type:body.shot_type,court_x:body.court_x,court_y:body.court_y,recorded_at:stamp(body.recorded_at),owner_token_hash:tokenOk(body.owner_token)?await ownerHash(body.owner_token):null},{onConflict:"id",ignoreDuplicates:true});
   return error?fail("Game situation shot could not be saved",500):ok({ok:true,id});
  }
- // Anonymous undo covers the courtside case and is limited to recent shots. A coach credential removes the window.
+ // Anonymous undo covers the courtside case: the caller must hold the owner token issued when the shot was uploaded, and the shot must be recent. A coach credential removes both limits.
  if(action==="game_situation_shot"&&req.method==="PATCH"){
   if(!uuid.test(id)||body.undone!==true)return fail("Invalid undo request");
   let query=db.from("pt_game_situation_shots").update({undone:true}).eq("id",id);
   if(hasCoachCredential(req)){const denied=await verifyCoach(req);if(denied)return fail(denied.error,denied.status)}
-  else query=query.gte("recorded_at",new Date(Date.now()-PUBLIC_UNDO_WINDOW_MS).toISOString());
+  else{if(!tokenOk(body.owner_token))return fail("Coach access required",401);query=query.eq("owner_token_hash",await ownerHash(body.owner_token)).gte("recorded_at",new Date(Date.now()-PUBLIC_UNDO_WINDOW_MS).toISOString())}
   const {data,error}=await query.select("id").maybeSingle();
   return error?fail("Game situation undo could not be saved",500):data?ok({ok:true,id}):fail("Shot not found or undo window closed",404);
  }
@@ -141,7 +143,7 @@ Deno.serve(async req=>{
   if(!uuid.test(id))return fail("Invalid record");
   let query=db.from("pt_shots").delete().eq("id",id);
   if(hasCoachCredential(req)){const denied=await verifyCoach(req);if(denied)return fail(denied.error,denied.status)}
-  else query=query.gte("created_at",new Date(Date.now()-PUBLIC_SHOT_DELETE_WINDOW_MS).toISOString());
+  else{if(!tokenOk(body.owner_token))return fail("Coach access required",401);query=query.eq("owner_token_hash",await ownerHash(body.owner_token)).gte("created_at",new Date(Date.now()-PUBLIC_SHOT_DELETE_WINDOW_MS).toISOString())}
   const {data,error}=await query.select("id").maybeSingle();
   return error?fail("Removal failed",500):data?ok({ok:true}):fail("Shot not found or undo window closed",404);
  }

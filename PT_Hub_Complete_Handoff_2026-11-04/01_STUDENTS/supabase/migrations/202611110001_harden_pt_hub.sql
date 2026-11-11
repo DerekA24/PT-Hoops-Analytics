@@ -83,3 +83,7 @@ revoke all on table public.pt_players, public.pt_drills, public.pt_shots from an
 insert into public.pt_drills (name, active)
 values ('Custom Drill', true)
 on conflict (name) do update set active = true;
+
+-- 7. Owner tokens let the device that uploaded a shot undo it without a coach code. Only the hash is stored.
+alter table public.pt_shots add column if not exists owner_token_hash text;
+alter table public.pt_game_situation_shots add column if not exists owner_token_hash text;

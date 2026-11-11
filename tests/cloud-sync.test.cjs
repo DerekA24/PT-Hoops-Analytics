@@ -78,7 +78,19 @@ test('a backup import does not delete shared shots, and resync forgets vanished 
   state.shooting = state.shooting.slice(0, 8);
   context.window.ptCloudQueueSave();
   await wait(150);
-  assert.equal(calls.filter(c => c.method === 'DELETE').length, 2, 'ordinary removals still propagate');
+  assert.equal(calls.filter(c => c.method === 'DELETE').length, 0, 'shots uploaded by another device need a coach to remove them');
+  state.shooting.push(shot(200));
+  context.window.ptCloudQueueSave();
+  await wait(150);
+  const upload = posts(calls).find(c => c.body.id === id(200));
+  assert.match(upload.body.owner_token, /^[0-9a-f]{48}$/);
+  state.shooting = state.shooting.filter(s => s.id !== id(200));
+  context.window.ptCloudQueueSave();
+  await wait(150);
+  const removal = calls.find(c => c.method === 'DELETE');
+  assert.ok(removal, 'a shot this device uploaded is removed when undone');
+  assert.equal(removal.body.owner_token, upload.body.owner_token);
+  assert.equal(removal.headers['X-Coach-Access-Code'], undefined);
 });
 
 test('cloud corrections refresh stale local copies, but unsent coach edits win locally', async () => {
