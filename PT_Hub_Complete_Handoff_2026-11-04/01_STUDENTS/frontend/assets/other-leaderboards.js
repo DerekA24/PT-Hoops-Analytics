@@ -36,7 +36,7 @@
   const ids=new Set([...rows.map(r=>r.playerId),...events.map(e=>e.playerId),...(Array.isArray(game.starters)?game.starters:[])]);
   const result=[];
   for(const id of ids){
-   if(!id)continue;
+   if(!id||isTestPlayerId(id))continue;
    const row=rows.find(r=>r.playerId===id),playerEvents=events.filter(e=>e.playerId===id);
    const gp=recordedValue(row,stats[0]);
    const recent=playerEvents.filter(event=>isNewLiveEvent(game,event));
@@ -81,7 +81,7 @@
  function renderDrillWins(){
   const totals=new Map();
   for(const result of state.drillResults||[]){
-   if(!['win','loss'].includes(result.result)||!result.playerId)continue;
+   if(!['win','loss'].includes(result.result)||!result.playerId||isTestPlayerId(result.playerId))continue;
    if($('otherScope').value==='range'&&!dateInRange(result.date,'other'))continue;
    const row=totals.get(result.playerId)||{id:result.playerId,wins:0,losses:0};
    row[result.result==='win'?'wins':'losses']++;totals.set(row.id,row);

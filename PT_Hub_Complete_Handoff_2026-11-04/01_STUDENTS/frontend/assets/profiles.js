@@ -8,9 +8,12 @@ const profileZones=[
  {id:'free',name:'Free Throws',x:250,y:215,path:'M174 186H326V240H174Z'},
  {id:'midLow',name:'Midrange Low',x:110,y:110,path:'M45 12H174V202H52L45 184Z M326 12H455V184L448 202H326Z'},
  {id:'midHigh',name:'Midrange High',x:250,y:300,path:'M52 202H174V240H326V202H448L410 300L326 352H174L90 300Z'},
- {id:'corner',name:'Corner 3',x:28,y:100,rotate:true,path:'M12 12H45V184H12Z M455 12H488V184H455Z'},
- {id:'wing',name:'Wing 3',x:57,y:256,path:'M12 184H45L90 300L62 345L12 280Z M455 184H488V280L438 345L410 300Z'},
- {id:'slot',name:'Slot 3',x:119,y:390,path:'M12 280L62 345L90 300L174 352V458H12Z M326 352L410 300L438 345L488 280V458H326Z'},
+ {id:'cornerLeft',name:'Corner 3 Left',x:28,y:100,rotate:true,path:'M12 12H45V184H12Z'},
+ {id:'cornerRight',name:'Corner 3 Right',x:472,y:100,rotate:true,path:'M455 12H488V184H455Z'},
+ {id:'wingLeft',name:'Wing 3 Left',x:57,y:256,path:'M12 184H45L90 300L62 345L12 280Z'},
+ {id:'wingRight',name:'Wing 3 Right',x:443,y:256,path:'M455 184H488V280L438 345L410 300Z'},
+ {id:'slotLeft',name:'Slot 3 Left',x:119,y:390,path:'M12 280L62 345L90 300L174 352V458H12Z'},
+ {id:'slotRight',name:'Slot 3 Right',x:381,y:390,path:'M326 352L410 300L438 345L488 280V458H326Z'},
  {id:'top',name:'Top of Key 3',x:250,y:394,path:'M174 352H326V458H174Z'}
 ];
 function profileShotSource(shot){if([shot.shotContext,shot.context,shot.source].includes('game-situation'))return 'game-situation';return shot.shotContext==='game'||shot.context==='game'||shot.source==='game'||shot.gameId?'game':'practice'}
@@ -22,14 +25,14 @@ function profileZone(shot){
   const x=Number(shot.x),y=Number(shot.y),dx=Math.abs(x-250);
   if(dx<76&&y<146)return 'rim';
   if(dx<76&&y<186)return 'floaters';
-  if((x<45||x>455)&&y<184)return 'corner';
+  if((x<45||x>455)&&y<184)return x<250?'cornerLeft':'cornerRight';
   if(Math.hypot(x-250,Math.max(0,y-184))<210)return y<202?'midLow':'midHigh';
-  return y<300?'wing':dx>76?'slot':'top';
+  return y<300?(x<250?'wingLeft':'wingRight'):dx>76?(x<250?'slotLeft':'slotRight'):'top';
  }
  if(/top of key/.test(name))return 'top';
- if(/corner/.test(name))return 'corner';
- if(/wing/.test(name))return 'wing';
- if(/slot/.test(name))return 'slot';
+ if(/corner/.test(name))return /right/.test(name)?'cornerRight':'cornerLeft';
+ if(/wing/.test(name))return /right/.test(name)?'wingRight':'wingLeft';
+ if(/slot/.test(name))return /right/.test(name)?'slotRight':'slotLeft';
  if(/midrange|mid.range/.test(name)){
   const detail=name+' '+String(shot.drill||'').toLowerCase();
   if(/\blow\b/.test(detail))return 'midLow';
@@ -41,12 +44,43 @@ function profileZone(shot){
  return null;
 }
 function profileIsTeam(){return document.body.dataset.profileScope==='team'}
-function profileCategory(shot){const name=shot.category||(shot.type==='Custom Drill'&&shot.drill?'Custom: '+shot.drill:shot.type)||profileZones.find(z=>z.id===shot.zone)?.name||'Located shots';return name==='Midrange'?'Midrange (Unspecified)':name}
+function isTestPlayerId(id){return state.players.some(player=>player.id===id&&String(player.name||'').trim().toLowerCase()==='test player')}
+function profileCategory(shot){const sided=profileZones.find(z=>z.id===shot.zone&&/(Left|Right)$/.test(z.name));const name=sided?.name||shot.category||(shot.type==='Custom Drill'&&shot.drill?'Custom: '+shot.drill:shot.type)||profileZones.find(z=>z.id===shot.zone)?.name||'Located shots';return name==='Midrange'?'Midrange (Unspecified)':name}
+function legacySidedTotals(){
+ const totals=new Map(),groups=new Map();
+ const legacy=state.shooting.filter(shot=>['Corner 3','Wing 3','Slot 3'].includes(shot.type)&&!profileLocation(shot)).slice().sort((a,b)=>String(a.date||'').localeCompare(String(b.date||''))||String(a.id||'').localeCompare(String(b.id||'')));
+ for(const shot of legacy){
+  const attempts=Number(shot.attempts),makes=Number(shot.makes);
+  if(!Number.isInteger(attempts)||!Number.isInteger(makes)||attempts<1||makes<0||makes>attempts)continue;
+  totals.set(shot.id,{leftAttempts:0,leftMakes:0});
+  for(const [outcome,count] of [['made',makes],['missed',attempts-makes]]){
+   const key=shot.type+'|'+outcome+'|'+shot.playerId;
+   if(!groups.has(key))groups.set(key,[]);
+   groups.get(key).push({shot,count});
+  }
+ }
+ const balance=new Map();
+ for(const [key,entries] of [...groups].sort(([a],[b])=>a.localeCompare(b))){
+  const [drill,outcome]=key.split('|'),balanceKey=drill+'|'+outcome;
+  const total=entries.reduce((sum,entry)=>sum+entry.count,0);
+  const startLeft=(balance.get(balanceKey)||0)<=0;
+  let seen=0,leftTotal=0;
+  for(const {shot,count} of entries){
+   const left=startLeft?Math.floor((seen+count+1)/2)-Math.floor((seen+1)/2):Math.floor((seen+count)/2)-Math.floor(seen/2);
+   const split=totals.get(shot.id);
+   split.leftAttempts+=left;
+   if(outcome==='made')split.leftMakes+=left;
+   seen+=count;leftTotal+=left;
+  }
+  balance.set(balanceKey,(balance.get(balanceKey)||0)+2*leftTotal-total);
+ }
+ return totals;
+}
 function profileRecords({allDates=profileAllDates,source=profileSource,player=profileIsTeam()?null:($('profilePlayer')?.value??null)}={}){
  const records=[];
  const dateMatches=date=>allDates||dateInRange(date,'court');
  const add=(shot,kind,date)=>{
-  if((player!==null&&shot.playerId!==player)||!dateMatches(date))return;
+  if((player!==null&&shot.playerId!==player)||(player===null&&profileIsTeam()&&isTestPlayerId(shot.playerId))||!dateMatches(date))return;
   const attempts=kind==='set'?Number(shot.attempts):1;
   const makes=kind==='set'?Number(shot.makes):Number(shot.made);
   if(!Number.isFinite(attempts)||!Number.isFinite(makes)||attempts<=0||makes<0||makes>attempts)return;
@@ -56,9 +90,15 @@ function profileRecords({allDates=profileAllDates,source=profileSource,player=pr
  for(const shot of shooting)add(shot,'set',shot.date);
  const linked=new Set(shooting.map(s=>s.id));
  for(const shot of state.court){if(profileShotSource(shot)!==source||shot.shotId&&linked.has(shot.shotId))continue;add(shot,'court',shot.date)}
+ if(source==='game-situation')for(const shot of state.gameSituationShots||[]){
+  if(shot.undone||!/^(TWO|THREE|FT)_[MX]$/.test(shot.type||''))continue;
+  const zone=profileZone(shot),category=profileZones.find(z=>z.id===zone)?.name||(shot.type.startsWith('THREE')?'Game Situation 3PT':shot.type.startsWith('FT')?'Free Throws':'Game Situation 2PT');
+  add({...shot,type:category,category,made:shot.type.endsWith('_M'),shotContext:'game-situation'},'game-situation',shot.date);
+ }
+ const normalizedSituationIds=new Set((state.gameSituationShots||[]).map(shot=>shot.id));
  if(source==='game-situation')for(const session of state.gameSituations||[]){
   for(const event of session.events||[]){
-   if(!/^(TWO|THREE|FT)_[MX]$/.test(event.type))continue;
+   if(!/^(TWO|THREE|FT)_[MX]$/.test(event.type)||normalizedSituationIds.has(event.id))continue;
    const zone=profileZone(event),category=profileZones.find(z=>z.id===zone)?.name||(event.type.startsWith('THREE')?'Game Situation 3PT':event.type.startsWith('FT')?'Free Throws':'Game Situation 2PT');
    add({...event,type:category,category,made:event.type.endsWith('_M'),shotContext:'game-situation'},'game-situation',session.date);
   }
@@ -86,10 +126,21 @@ function profileRecords({allDates=profileAllDates,source=profileSource,player=pr
    add({...event,made:event.type.endsWith('_M'),category:event.type.startsWith('THREE')?'Game 3PT':event.type.startsWith('FT')?'Free Throws':'Game 2PT'},'game',game.date);
   }
  }
- return records;
+ // Older unsided drill results have no position. Divide their attempts between sides in the view only.
+ const legacySides=legacySidedTotals();
+ return records.flatMap(record=>{
+  if(profileLocation(record)||!['Corner 3','Wing 3','Slot 3'].includes(record.type))return [record];
+  const split=legacySides.get(record.id);
+  const leftAttempts=split?.leftAttempts??Math.ceil(record.attempts/2);
+  const rightAttempts=record.attempts-leftAttempts;
+  const leftMakes=split?.leftMakes??Math.min(record.makes,leftAttempts,Math.ceil(record.makes/2));
+  const rightMakes=record.makes-leftMakes;
+  const leftName=record.type+' Left',rightName=record.type+' Right';
+  return [{...record,type:leftName,category:leftName,zone:profileZone({type:leftName}),attempts:leftAttempts,makes:leftMakes},{...record,type:rightName,category:rightName,zone:profileZone({type:rightName}),attempts:rightAttempts,makes:rightMakes}].filter(part=>part.attempts>0);
+ });
 }
 const profileHeatColors=['#dc2626','#f97316','#facc15','#a3e635','#16a34a'];
-const profileHeatThresholds={rim:[45,50,60,65],floaters:[30,35,45,50],midLow:[30,35,45,50],midHigh:[25,30,40,45],corner:[20,25,35,40],wing:[20,25,35,40],slot:[20,25,35,40],top:[20,25,35,40],free:[50,60,70,80]};
+const profileHeatThresholds={rim:[45,50,60,65],floaters:[30,35,45,50],midLow:[30,35,45,50],midHigh:[25,30,40,45],cornerLeft:[20,25,35,40],cornerRight:[20,25,35,40],wingLeft:[20,25,35,40],wingRight:[20,25,35,40],slotLeft:[20,25,35,40],slotRight:[20,25,35,40],top:[20,25,35,40],free:[50,60,70,80]};
 function profileColor(makes,attempts,zone){
  if(!attempts)return '#25313d';
  const thresholds=profileHeatThresholds[zone];if(!thresholds)return '#25313d';
@@ -116,7 +167,7 @@ function renderProfile(){
  }
  $('heatZones').innerHTML=profileZones.map(z=>{const s=zones.get(z.id);return `<path data-zone="${z.id}" d="${z.path}" fill="${profileColor(s.m,s.a,z.id)}" stroke="#101820" stroke-width="2"><title>${esc(z.name)}: ${s.a?s.m+'/'+s.a+' · '+pct(s.m,s.a):'No shots'}</title></path>`}).join('');
  $('heatLabels').innerHTML=profileZones.map(z=>{const s=zones.get(z.id),transform=z.rotate?` transform="rotate(-90 ${z.x} ${z.y})"`:'';return `<text x="${z.x}" y="${z.y-9}" text-anchor="middle"${transform}><tspan x="${z.x}">${esc(z.name)}</tspan><tspan x="${z.x}" dy="16" class="heat-zone-value">${s.a?pct(s.m,s.a):'No shots'}</tspan>${s.a?`<tspan x="${z.x}" dy="14">${s.m}/${s.a}</tspan>`:''}</text>`}).join('');
- $('markers').innerHTML=records.filter(profileLocation).map(s=>`<circle cx="${Number(s.x)}" cy="${Number(s.y)}" r="3" fill="${s.makes?'#fff':'#101820'}" stroke="#fff" stroke-width="1"/>`).join('');
+ $('markers').innerHTML=profileSource==='game-situation'?'':records.filter(profileLocation).map(s=>`<circle cx="${Number(s.x)}" cy="${Number(s.y)}" r="3" fill="${s.makes?'#fff':'#101820'}" stroke="#fff" stroke-width="1"/>`).join('');
  $('courtMode').textContent=`${label} · ${profileAllDates?'Full season':dateRangeLabel('court')} · ${mapped} of ${attempts} attempts mapped${attempts>mapped?' · '+(attempts-mapped)+' without a court zone':''}${attempts?'':'. No shots recorded for this selection.'}`;
  $('profileSummary').innerHTML=`<div class="profile-compact-stats"><span><small>Made</small><strong>${makes}</strong></span><span><small>Attempts</small><strong>${attempts}</strong></span><span><small>Shooting</small><strong>${pct(makes,attempts)}</strong></span></div>`;
  $('profileCategories').innerHTML=categories.size?table(['Category','Made / Att.','%'],[...categories].map(([name,s])=>`<tr><td>${esc(name)}</td><td>${s.m}/${s.a}</td><td>${pct(s.m,s.a)}</td></tr>`)):'<p class="muted">No shot data for this selection.</p>';

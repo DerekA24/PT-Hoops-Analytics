@@ -12,10 +12,25 @@ function reply(v:unknown,s=200){return new Response(JSON.stringify(v),{status:s,
 const fail=(m:string,c=400)=>reply({error:m},c);
 async function codeHash(code:string){const bytes=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(code));return Array.from(new Uint8Array(bytes),x=>x.toString(16).padStart(2,"0")).join("")}
 type ShotSnapshotRow={id:string;player_id:string;drill_id:string;made:boolean;practice_date:string;created_at:string};
-async function fetchAllShots(){
+type SituationShotRow={id:string;player_id:string;practice_date:string;shot_type:string;court_x:number|null;court_y:number|null;recorded_at:string;undone:boolean};
+async function fetchAllShots(playerId?:string){
  const pageSize=1000,rows:ShotSnapshotRow[]=[];
  for(let offset=0;;offset+=pageSize){
-  const {data,error}=await db.from("pt_shots").select("id,player_id,drill_id,made,practice_date,created_at").order("created_at",{ascending:false}).order("id",{ascending:false}).range(offset,offset+pageSize-1);
+  let query=db.from("pt_shots").select("id,player_id,drill_id,made,practice_date,created_at");
+  if(playerId)query=query.eq("player_id",playerId);
+  const {data,error}=await query.order("created_at",{ascending:false}).order("id",{ascending:false}).range(offset,offset+pageSize-1);
+  if(error)return {data:null,error};
+  rows.push(...(data||[]));
+  if(!data||data.length<pageSize)break;
+ }
+ return {data:rows,error:null};
+}
+async function fetchAllSituationShots(playerId?:string){
+ const pageSize=1000,rows:SituationShotRow[]=[];
+ for(let offset=0;;offset+=pageSize){
+  let query=db.from("pt_game_situation_shots").select("id,player_id,practice_date,shot_type,court_x,court_y,recorded_at,undone");
+  if(playerId)query=query.eq("player_id",playerId);
+  const {data,error}=await query.order("recorded_at",{ascending:false}).order("id",{ascending:false}).range(offset,offset+pageSize-1);
   if(error)return {data:null,error};
   rows.push(...(data||[]));
   if(!data||data.length<pageSize)break;
@@ -33,15 +48,21 @@ Deno.serve(async req=>{
  if(rateError||!allowed)return fail("Rate limit reached",429);
  const action=new URL(req.url).searchParams.get("action");
  if(req.method==="GET"&&action==="snapshot"){
- const [p,d,s,r,sc,g]=await Promise.all([
- db.from("pt_players").select("id,full_name,jersey_number,grade,position,active").eq("active",true).limit(250),
- db.from("pt_drills").select("id,name,active").eq("active",true).limit(250),
- fetchAllShots(),
- db.from("pt_drill_results").select("id,batch_id,player_id,result,practice_date,recorded_at,created_at").order("recorded_at",{ascending:false}).limit(10000),
- db.from("pt_schedule_records").select("id,payload,updated_at").order("updated_at",{ascending:false}).limit(10),
- db.from("pt_game_situations").select("id,practice_date,payload,updated_at").order("created_at",{ascending:false}).limit(10000)]);
- if(p.error||d.error||s.error||r.error||sc.error||g.error)return fail("Shared data unavailable",500);
- return reply({players:p.data,drills:d.data,shots:s.data,drillResults:r.data,scheduleRecords:sc.data,gameSituations:g.data});
+ const params=new URL(req.url).searchParams;
+ const scope=params.get("scope")||"full",playerId=params.get("player_id")||"";
+ if(!["full","coach","player","schedule","schedule-only","entry"].includes(scope)||scope==="player"&&!uuid.test(playerId))return fail("Invalid snapshot scope");
+ const full=scope==="full",coach=scope==="coach",player=scope==="player",schedule=scope==="schedule"||scope==="schedule-only";
+ const empty=<T>()=>Promise.resolve({data:[] as T[],error:null});
+ const [p,d,s,r,sc,g,gs]=await Promise.all([
+ scope==="schedule-only"?empty():db.from("pt_players").select("id,full_name,jersey_number,grade,position,active").eq("active",true).limit(250),
+ scope==="schedule"||scope==="schedule-only"?empty():db.from("pt_drills").select("id,name,active").eq("active",true).limit(250),
+ full||coach||player?fetchAllShots(player?playerId:undefined):empty<ShotSnapshotRow>(),
+ full||coach?db.from("pt_drill_results").select("id,batch_id,player_id,result,practice_date,recorded_at,created_at").order("recorded_at",{ascending:false}).limit(10000):empty(),
+ full||schedule?db.from("pt_schedule_records").select("id,payload,updated_at").order("updated_at",{ascending:false}).limit(10):empty(),
+ full?db.from("pt_game_situations").select("id,practice_date,payload,updated_at").order("created_at",{ascending:false}).limit(10000):empty(),
+ full||player?fetchAllSituationShots(player?playerId:undefined):empty<SituationShotRow>()]);
+ if(p.error||d.error||s.error||r.error||sc.error||g.error||gs.error)return fail("Shared data unavailable",500);
+ return reply({scope,players:p.data,drills:d.data,shots:s.data,drillResults:r.data,scheduleRecords:sc.data,gameSituations:g.data,gameSituationShots:gs.data});
  }
  if(!["POST","PATCH","DELETE"].includes(req.method))return fail("Unknown operation",404);
  const body=await req.json();
@@ -60,10 +81,25 @@ Deno.serve(async req=>{
  const {error}=await db.from("pt_drill_results").upsert({id:body.id,batch_id:body.batch_id,player_id:body.player_id,result:body.result,practice_date:body.practice_date,recorded_at:new Date(body.recorded_at).toISOString()},{onConflict:"id",ignoreDuplicates:true});
  return error?fail("Drill result could not be saved",500):reply({ok:true,id:body.id});
  }
+ if(action==="game_situation_shot"&&req.method==="POST"){
+  if(!uuid.test(body.id||"")||!uuid.test(body.player_id||"")||typeof body.practice_date!=="string"||!/^[0-9]{4}-\d{2}-\d{2}$/.test(body.practice_date)||!["TWO_M","TWO_X","THREE_M","THREE_X","FT_M","FT_X"].includes(body.shot_type)||!Number.isFinite(Date.parse(body.recorded_at))||!Number.isInteger(body.court_x)||body.court_x<12||body.court_x>488||!Number.isInteger(body.court_y)||body.court_y<12||body.court_y>458)return fail("Invalid game situation shot");
+  const {error}=await db.from("pt_game_situation_shots").upsert({id:body.id,player_id:body.player_id,practice_date:body.practice_date,shot_type:body.shot_type,court_x:body.court_x,court_y:body.court_y,recorded_at:new Date(body.recorded_at).toISOString()},{onConflict:"id",ignoreDuplicates:true});
+  return error?fail("Game situation shot could not be saved",500):reply({ok:true,id:body.id});
+ }
+ if(action==="game_situation_shot"&&req.method==="PATCH"){
+  if(!uuid.test(body.id||"")||body.undone!==true)return fail("Invalid undo request");
+  const {data,error}=await db.from("pt_game_situation_shots").update({undone:true}).eq("id",body.id).select("id").maybeSingle();
+  return error?fail("Game situation undo could not be saved",500):data?reply({ok:true,id:body.id}):fail("Shot not found",404);
+ }
+ // Keep the previous endpoint available for already-open browser tabs during rollout.
  if(req.method==="POST"&&action==="game_situation"){
- if(!uuid.test(body.id||"")||typeof body.practice_date!=="string"||!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(body.practice_date)||!body.payload||typeof body.payload!=="object")return fail("Invalid game situation");
- const {error}=await db.from("pt_game_situations").upsert({id:body.id,practice_date:body.practice_date,payload:body.payload},{onConflict:"id"});
- return error?fail("Game situation could not be saved",500):reply({ok:true,id:body.id});
+  if(!uuid.test(body.id||"")||typeof body.practice_date!=="string"||!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(body.practice_date)||!body.payload||typeof body.payload!=="object")return fail("Invalid game situation");
+  const {error}=await db.from("pt_game_situations").upsert({id:body.id,practice_date:body.practice_date,payload:body.payload},{onConflict:"id"});
+  if(error)return fail("Game situation could not be saved",500);
+  const events=Array.isArray(body.payload.events)?body.payload.events:[];
+  const shots=events.filter((event:Record<string,unknown>)=>uuid.test(String(event.id||""))&&uuid.test(String(event.playerId||""))&&["TWO_M","TWO_X","THREE_M","THREE_X","FT_M","FT_X"].includes(String(event.type||""))&&typeof event.x==="number"&&Number.isInteger(event.x)&&event.x>=12&&event.x<=488&&typeof event.y==="number"&&Number.isInteger(event.y)&&event.y>=12&&event.y<=458&&Number.isFinite(Date.parse(String(event.recordedAt||"")))).map((event:Record<string,unknown>)=>({id:event.id,player_id:event.playerId,practice_date:body.practice_date,shot_type:event.type,court_x:event.x,court_y:event.y,recorded_at:new Date(String(event.recordedAt)).toISOString()}));
+  if(shots.length){const {error:shotError}=await db.from("pt_game_situation_shots").upsert(shots,{onConflict:"id",ignoreDuplicates:true});if(shotError)return fail("Legacy shots could not be copied",500)}
+  return reply({ok:true,id:body.id});
  }
  const bearer=req.headers.get("authorization")?.replace(/^Bearer\s+/i,"")||"";
  if(bearer){

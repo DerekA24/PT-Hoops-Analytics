@@ -2,7 +2,7 @@
 (function(){
 'use strict';
 const safe=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const drillsDefault=['Free Throws','Top of Key 3','Wing 3','Slot 3','Corner 3','Midrange Low','Midrange High','Floaters','Finishing / Layups','Contested Shots'];
+const drillsDefault=['Free Throws','Top of Key 3','Wing 3 Left','Wing 3 Right','Slot 3 Left','Slot 3 Right','Corner 3 Left','Corner 3 Right','Midrange Low','Midrange High','Floaters','Finishing / Layups','Contested Shots'];
 const data=()=>leaderboardRecords();
 const roster=()=>Array.isArray(state.players)?state.players:[];
 const nameFor=id=>roster().find(p=>p.id===id)?.name||'Unknown athlete';

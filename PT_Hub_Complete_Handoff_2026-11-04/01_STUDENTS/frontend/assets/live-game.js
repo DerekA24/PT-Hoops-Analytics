@@ -110,13 +110,14 @@
    const type=action[0]==='FAST_TWO'?'TWO_M':action[0],before={pt:score(game,'pt'),opponent:score(game,'opponent')};
    const event={id:uid(),playerId:active.player.id,playerName:active.player.name,team:active.team,type,label:action[1],x:point.x,y:point.y,fastBreak:action[0]==='FAST_TWO',inPaint:type==='TWO_M'&&point.x>=174&&point.x<=326&&point.y<=202,recordedAt:new Date().toISOString(),source:eventSource,shotContext:situation?'game-situation':'game',scoreBefore:before};
    const events=Array.isArray(game.events)?game.events:[];game.events=events;events.push(event);game.played=true;game.final=false;
+   if(situation)state.gameSituationShots.push({id:event.id,playerId:event.playerId,date:game.date,type:event.type,x:event.x,y:event.y,recordedAt:event.recordedAt,undone:false});
    game.teamScore=before.pt+(active.team==='pt'?points(event):0);game.opponentScore=before.opponent+(active.team==='opponent'?points(event):0);game.oppScore=game.opponentScore;
    save();
   }finally{busy=false;render()}
  };
  $('liveUndo').onclick=()=>{
   const game=selectedEntry()?.game,last=game?.events?.at(-1);if(!last||last.source!==eventSource)return;
-  game.events.pop();game.teamScore=last.scoreBefore?.pt??Math.max(0,score(game,'pt')-(last.team==='opponent'?0:points(last)));game.opponentScore=last.scoreBefore?.opponent??Math.max(0,score(game,'opponent')-(last.team==='opponent'?points(last):0));game.oppScore=game.opponentScore;save();
+   game.events.pop();if(situation){const shot=state.gameSituationShots.find(x=>x.id===last.id);if(shot)shot.undone=true;else state.gameSituationShots.push({id:last.id,playerId:last.playerId,date:game.date,type:last.type,x:last.x,y:last.y,recordedAt:last.recordedAt,undone:true});}game.teamScore=last.scoreBefore?.pt??Math.max(0,score(game,'pt')-(last.team==='opponent'?0:points(last)));game.opponentScore=last.scoreBefore?.opponent??Math.max(0,score(game,'opponent')-(last.team==='opponent'?points(last):0));game.oppScore=game.opponentScore;save();
  };
  if($('liveGenerateReport'))$('liveGenerateReport').onclick=()=>{
   const entry=selectedEntry();if(!entry)return toast('Select a game before generating a report.');
