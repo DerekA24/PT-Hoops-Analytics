@@ -47,6 +47,7 @@ $('coachCodeForm').addEventListener('submit',async e=>{
   if(!await matches($('gateCurrent').value))return fail('Current code is incorrect.');
   if(code.length<6)return fail('Use at least 6 characters.');
   if(code!==$('gateConfirm').value)return fail('Codes do not match.');
+  if(typeof window.ptCloudChangeCoachCode==='function'){try{await window.ptCloudChangeCoachCode($('gateCurrent').value,code)}catch(err){return fail('The shared database did not accept the new code: '+err.message)}}
   const s=salt();localStorage.setItem(KEY,JSON.stringify({version:CODE_VERSION,salt:s,hash:await digest(code,s)}));
   sessionCode=code;unlocked=true;
   if(changing){close();return;}displayCoach();return;

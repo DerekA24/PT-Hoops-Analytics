@@ -45,7 +45,7 @@
  }
  $('reportRetry').onclick=generateInsights;
  try{
-  const id=new URLSearchParams(location.search).get('report');if(!id||!/^[\w-]{1,100}$/.test(id))throw Error('No game report was selected.');
+  const id=new URLSearchParams(location.search).get('report');if(!id||!/^[\w.-]{1,100}$/.test(id))throw Error('No game report was selected.');
   const snapshot=JSON.parse(localStorage.getItem('pt-game-report-'+id)||'null');if(!snapshot?.game||!Array.isArray(snapshot.players))throw Error('This report is no longer available on this browser. Generate it again from Live Game.');
   report=PTGameReport.build(snapshot.game,snapshot.players);
   const homeName=report.homeName;
