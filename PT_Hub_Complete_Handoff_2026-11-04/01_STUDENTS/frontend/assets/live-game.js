@@ -3,8 +3,9 @@
  if(!document.getElementById('liveGamePage'))return;
  const situation=document.body.dataset.entryMode==='game-situation';
  const homeName=situation?'Red':'Park Tudor',eventSource=situation?'game-situation':'live-game';
+ const resetActions=situation?window.PTLiveGameResets:null;
  state.gameSituations=Array.isArray(state.gameSituations)?state.gameSituations:[];
- const actions=situation?[['TWO_M','Made 2'],['TWO_X','Missed 2'],['THREE_M','Made 3'],['THREE_X','Missed 3'],['FT_M','Made FT'],['FT_X','Missed FT']]:[
+ const actions=situation?[['TWO_M','Made 2'],['TWO_X','Missed 2'],['THREE_M','Made 3'],['THREE_X','Missed 3'],['FT_M','Made FT'],['FT_X','Missed FT'],['DRB','DRB'],['ORB','ORB'],['TO','TO']]:[
   ['TWO_M','2pt Make'],['TWO_X','2pt Miss'],['THREE_M','3pt Make'],['THREE_X','3pt Miss'],['FT_M','Free Throw Make'],['FT_X','Free Throw Miss'],['OREB','ORB'],['DREB','DRB'],['STL','STL'],['AST','AST'],['TO','TO'],['BLK','BLK'],['FOUL','Foul'],['FAST_TWO','Fast Break 2']
  ];
  const tablet=matchMedia('(min-width:768px) and (min-height:600px) and (pointer:coarse)');
@@ -55,18 +56,24 @@
   if($('liveGameTeams'))$('liveGameTeams').textContent=`${homeName} vs ${opponent}`;
   $('liveGameScore').textContent=`${score(game,'pt')} \u2013 ${score(game,'opponent')}`;
   $('liveGameScore').setAttribute('aria-label',`${homeName} ${score(game,'pt')}, ${opponent} ${score(game,'opponent')}`);
+  if(situation){
+   $('liveResetScore').disabled=!game||(!score(game,'pt')&&!score(game,'opponent'));
+   $('liveResetRoster').disabled=!game||!([...slots(game,'pt'),...slots(game,'opponent')].some(Boolean)||game.liveActive);
+  }
   const saved=game?.liveCourtPoint;if(saved&&Number.isFinite(saved.x)&&Number.isFinite(saved.y))point={x:Math.max(12,Math.min(488,saved.x)),y:Math.max(12,Math.min(458,saved.y))};updateDot();
   $('livePlayerSlots').innerHTML=Array.from({length:5},(_,slot)=>['pt','opponent'].map(team=>{
    const lineup=slots(game,team),id=lineup[slot],players=roster(game,team),player=players.find(p=>p.id===id),isActive=active?.team===team&&active.slot===slot;
-   return `<div class="live-slot-dropdown ${isActive?'selected':''}" data-live-slot="${team}:${slot}" data-live-team-slot="${team}"><button type="button" class="live-player-activate" data-live-activate="${team}:${slot}" aria-pressed="${!!isActive}" title="${player?esc(playerLabel(player)):'Use the arrow to choose a player'}" ${!entry||!player?'disabled':''}>${player?'<span class="live-player-number">'+(player.number!==undefined&&player.number!==''?'#'+esc(player.number):'')+'</span> <span class="live-player-name">'+esc(player.name)+'</span>':'Select player'}</button><span class="live-player-arrow" aria-hidden="true">&#9662;</span><select data-live-player="${team}:${slot}" aria-label="Change ${team==='pt'?homeName:esc(opponent)} player ${slot+1}" aria-describedby="liveSelectedPlayer" ${!entry?'disabled':''}><option value="">Select player</option>${players.map(p=>`<option value="${esc(p.id)}" ${p.id===id?'selected':''} ${lineup.some((value,i)=>i!==slot&&value===p.id)||situation&&slots(game,team==='pt'?'opponent':'pt').includes(p.id)?'disabled':''}>${esc(playerLabel(p))}</option>`).join('')}</select></div>`;
+   const emptyLabel=situation?'<span class="live-player-empty-standard">Select player</span><span class="live-player-empty-mobile">Select</span>':'Select player';
+   return `<div class="live-slot-dropdown ${isActive?'selected':''}" data-live-slot="${team}:${slot}" data-live-team-slot="${team}"><button type="button" class="live-player-activate" data-live-activate="${team}:${slot}" aria-pressed="${!!isActive}" title="${player?esc(playerLabel(player)):'Use the arrow to choose a player'}" ${!entry||!player?'disabled':''}>${player?'<span class="live-player-number">'+(player.number!==undefined&&player.number!==''?'#'+esc(player.number):'')+'</span> <span class="live-player-name">'+esc(player.name)+'</span>':emptyLabel}${situation&&player?'<span class="live-player-mobile">'+esc(player.name.trim().split(/\s+/).at(-1))+'</span>':''}</button><span class="live-player-arrow" aria-hidden="true">&#9662;</span><select data-live-player="${team}:${slot}" aria-label="Change ${team==='pt'?homeName:esc(opponent)} player ${slot+1}" aria-describedby="liveSelectedPlayer" ${!entry?'disabled':''}><option value="">Select player</option>${players.map(p=>`<option value="${esc(p.id)}" ${p.id===id?'selected':''} ${lineup.some((value,i)=>i!==slot&&value===p.id)||situation&&slots(game,team==='pt'?'opponent':'pt').includes(p.id)?'disabled':''}>${esc(playerLabel(p))}</option>`).join('')}</select></div>`;
   }).join('')).join('');
   $('liveRosterNote').innerHTML=state.players.length?'':'Add Park Tudor players in <a href="coach-review.html#roster">Coach Review → Roster</a>.';
   $('liveSelectedPlayer').textContent=active?`${active.team==='pt'?homeName:opponent} · ${playerLabel(active.player)}`:entry?'Choose a player above.':'Select a game and player.';
-  $('liveStatButtons').innerHTML=actions.map(([type,label])=>`<button type="button" data-live-stat="${type}" ${!active||busy?'disabled':''} class="${type.endsWith('_M')||type==='FAST_TWO'?'live-make':type.endsWith('_X')?'live-miss':''}">${label}</button>`).join('');
+  $('liveStatButtons').innerHTML=actions.map(([type,label])=>`<button type="button" data-live-stat="${type}" ${!active||busy?'disabled':''} class="${type.endsWith('_M')||type==='FAST_TWO'?'live-make':type.endsWith('_X')?'live-miss':''}${situation&&['DRB','ORB','TO'].includes(type)?' live-situation-extra':''}"${situation&&['DRB','ORB','TO'].includes(type)?` aria-label="${type==='DRB'?'Defensive Rebounds':type==='ORB'?'Offensive Rebounds':'Turnovers'}"`:''}>${label}</button>`).join('');
   const last=(game?.events||[]).at(-1),lastPlayer=last?roster(game,last.team==='opponent'?'opponent':'pt').find(p=>p.id===last.playerId):null;
   $('liveUndo').disabled=!last||last.source!==eventSource;
+  $('liveUndo').setAttribute('aria-label',last?.type==='RESET_SCORE'?'Undo score reset':last?.type==='RESET_ROSTER'?'Undo roster reset':'Undo last entry');
   if($('liveGenerateReport'))$('liveGenerateReport').disabled=!entry;
-  $('liveLastEntry').textContent=last?.source===eventSource?`Saved: ${last.team==='opponent'?opponent:homeName} · ${lastPlayer?playerLabel(lastPlayer):last.playerName||'Player'} · ${last.label||last.type} · (${last.x}, ${last.y})`:'';
+  $('liveLastEntry').textContent=last?.source!==eventSource?'':last.type==='RESET_SCORE'?'Score reset to 0 – 0. Undo restores the previous score.':last.type==='RESET_ROSTER'?'Both on-court lineups cleared. Undo restores them.':`Saved: ${last.team==='opponent'?opponent:homeName} · ${lastPlayer?playerLabel(lastPlayer):last.playerName||'Player'} · ${last.label||last.type} · (${last.x}, ${last.y})`;
  }
  function arrangeTabletFooter(){
   const destination=tablet.matches?$('liveScoreFooter'):document.querySelector('.live-last-entry');
@@ -115,9 +122,26 @@
    save();
   }finally{busy=false;render()}
  };
+ if(situation){
+  $('liveResetScore').onclick=()=>{
+   const game=selectedEntry()?.game;if(!game)return;
+   const before={pt:score(game,'pt'),opponent:score(game,'opponent')};
+   if(!before.pt&&!before.opponent)return;
+   resetActions.score(game,uid(),eventSource,before);save();
+  };
+  $('liveResetRoster').onclick=()=>{
+   const game=selectedEntry()?.game;if(!game)return;
+   const lineups={pt:slots(game,'pt'),opponent:slots(game,'opponent')};
+   if(![...lineups.pt,...lineups.opponent].some(Boolean)&&!game.liveActive)return;
+   resetActions.roster(game,uid(),eventSource,lineups,game.liveActive);save();
+  };
+ }
  $('liveUndo').onclick=()=>{
   const game=selectedEntry()?.game,last=game?.events?.at(-1);if(!last||last.source!==eventSource)return;
-   game.events.pop();if(situation){const shot=state.gameSituationShots.find(x=>x.id===last.id);if(shot)shot.undone=true;else state.gameSituationShots.push({id:last.id,playerId:last.playerId,date:game.date,type:last.type,x:last.x,y:last.y,recordedAt:last.recordedAt,undone:true});}game.teamScore=last.scoreBefore?.pt??Math.max(0,score(game,'pt')-(last.team==='opponent'?0:points(last)));game.opponentScore=last.scoreBefore?.opponent??Math.max(0,score(game,'opponent')-(last.team==='opponent'?points(last):0));game.oppScore=game.opponentScore;save();
+   if(situation&&resetActions.undo(game)){save();return}
+   game.events.pop();
+   if(situation){const shot=state.gameSituationShots.find(x=>x.id===last.id);if(shot)shot.undone=true;else state.gameSituationShots.push({id:last.id,playerId:last.playerId,date:game.date,type:last.type,x:last.x,y:last.y,recordedAt:last.recordedAt,undone:true});}
+   game.teamScore=last.scoreBefore?.pt??Math.max(0,score(game,'pt')-(last.team==='opponent'?0:points(last)));game.opponentScore=last.scoreBefore?.opponent??Math.max(0,score(game,'opponent')-(last.team==='opponent'?points(last):0));game.oppScore=game.opponentScore;save();
  };
  if($('liveGenerateReport'))$('liveGenerateReport').onclick=()=>{
   const entry=selectedEntry();if(!entry)return toast('Select a game before generating a report.');

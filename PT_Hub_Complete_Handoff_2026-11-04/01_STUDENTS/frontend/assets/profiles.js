@@ -1,17 +1,20 @@
 // Profile charts use the existing backup schema; untagged located shots are practice shots.
-let profileSource='practice',profileAllDates=true;
+let profileSource='practice',profileAllDates=true,profileStatsSource='situation';
 const profileSources=[['practice','Practice','practiceShots','trendPracticeShots'],['game-situation','Game Situation','gameSituationShots','trendGameSituationShots'],['game','Game','gameShots','trendGameShots']];
 const profileSourceLabel=()=>profileSources.find(([key])=>key===profileSource)?.[1]||'Practice';
 const profileZones=[
  {id:'rim',name:'Finishing',x:250,y:116,path:'M174 12H326V146H174Z'},
  {id:'floaters',name:'Floaters',x:250,y:167,path:'M174 146H326V186H174Z'},
- {id:'free',name:'Free Throws',x:250,y:215,path:'M174 186H326V240H174Z'},
- {id:'midLow',name:'Midrange Low',x:110,y:110,path:'M45 12H174V202H52L45 184Z M326 12H455V184L448 202H326Z'},
- {id:'midHigh',name:'Midrange High',x:250,y:300,path:'M52 202H174V240H326V202H448L410 300L326 352H174L90 300Z'},
+ {id:'midCornerLeft',name:'Midrange Corner Left',x:110,y:110,path:'M45 12H174V202H52L45 184Z'},
+ {id:'midCornerRight',name:'Midrange Corner Right',x:390,y:110,path:'M326 12H455V184L448 202H326Z'},
+ {id:'midWingLeft',name:'Midrange Wing Left',x:112,y:282,path:'M52 202H174V352L90 300Z'},
+ {id:'midWingRight',name:'Midrange Wing Right',x:388,y:282,path:'M326 202H448L410 300L326 352Z'},
+ {id:'midKey',name:'Midrange Key',x:250,y:300,path:'M174 186H326V352H174Z'},
+ {id:'free',name:'Free Throws',x:250,y:215,path:'M210 199H290V236H210Z'},
  {id:'cornerLeft',name:'Corner 3 Left',x:28,y:100,rotate:true,path:'M12 12H45V184H12Z'},
  {id:'cornerRight',name:'Corner 3 Right',x:472,y:100,rotate:true,path:'M455 12H488V184H455Z'},
- {id:'wingLeft',name:'Wing 3 Left',x:57,y:256,path:'M12 184H45L90 300L62 345L12 280Z'},
- {id:'wingRight',name:'Wing 3 Right',x:443,y:256,path:'M455 184H488V280L438 345L410 300Z'},
+ {id:'wingLeft',name:'Wing 3 Left',x:57,y:233,path:'M12 184H45L90 300L62 345L12 280Z'},
+ {id:'wingRight',name:'Wing 3 Right',x:443,y:233,path:'M455 184H488V280L438 345L410 300Z'},
  {id:'slotLeft',name:'Slot 3 Left',x:119,y:390,path:'M12 280L62 345L90 300L174 352V458H12Z'},
  {id:'slotRight',name:'Slot 3 Right',x:381,y:390,path:'M326 352L410 300L438 345L488 280V458H326Z'},
  {id:'top',name:'Top of Key 3',x:250,y:394,path:'M174 352H326V458H174Z'}
@@ -26,26 +29,31 @@ function profileZone(shot){
   if(dx<76&&y<146)return 'rim';
   if(dx<76&&y<186)return 'floaters';
   if((x<45||x>455)&&y<184)return x<250?'cornerLeft':'cornerRight';
-  if(Math.hypot(x-250,Math.max(0,y-184))<210)return y<202?'midLow':'midHigh';
+  if(Math.hypot(x-250,Math.max(0,y-184))<210){
+   if(x>=174&&x<=326)return 'midKey';
+   if(y<202)return x<250?'midCornerLeft':'midCornerRight';
+   return x<250?'midWingLeft':'midWingRight';
+  }
   return y<300?(x<250?'wingLeft':'wingRight'):dx>76?(x<250?'slotLeft':'slotRight'):'top';
  }
  if(/top of key/.test(name))return 'top';
+ if(/midrange|mid.range/.test(name)){
+  const detail=name+' '+String(shot.drill||'').toLowerCase();
+  if(/\bkey\b/.test(detail))return 'midKey';
+  if(/\bcorner\b/.test(detail))return /\bright\b/.test(detail)?'midCornerRight':'midCornerLeft';
+  if(/\bwing\b/.test(detail))return /\bright\b/.test(detail)?'midWingRight':'midWingLeft';
+  return null;
+ }
  if(/corner/.test(name))return /right/.test(name)?'cornerRight':'cornerLeft';
  if(/wing/.test(name))return /right/.test(name)?'wingRight':'wingLeft';
  if(/slot/.test(name))return /right/.test(name)?'slotRight':'slotLeft';
- if(/midrange|mid.range/.test(name)){
-  const detail=name+' '+String(shot.drill||'').toLowerCase();
-  if(/\blow\b/.test(detail))return 'midLow';
-  if(/\bhigh\b/.test(detail))return 'midHigh';
-  return null;
- }
  if(/floater/.test(name))return 'floaters';
  if(/finish|layup|lay.up|at rim/.test(name))return 'rim';
  return null;
 }
 function profileIsTeam(){return document.body.dataset.profileScope==='team'}
 function isTestPlayerId(id){return state.players.some(player=>player.id===id&&String(player.name||'').trim().toLowerCase()==='test player')}
-function profileCategory(shot){const sided=profileZones.find(z=>z.id===shot.zone&&/(Left|Right)$/.test(z.name));const name=sided?.name||shot.category||(shot.type==='Custom Drill'&&shot.drill?'Custom: '+shot.drill:shot.type)||profileZones.find(z=>z.id===shot.zone)?.name||'Located shots';return name==='Midrange'?'Midrange (Unspecified)':name}
+function profileCategory(shot){const mapped=profileZones.find(z=>z.id===shot.zone&&(/(Left|Right)$/.test(z.name)||z.id==='midKey'));const name=mapped?.name||shot.category||(shot.type==='Custom Drill'&&shot.drill?'Custom: '+shot.drill:shot.type)||profileZones.find(z=>z.id===shot.zone)?.name||'Located shots';return name==='Midrange'?'Midrange (Unspecified)':name}
 function legacySidedTotals(){
  const totals=new Map(),groups=new Map();
  const legacy=state.shooting.filter(shot=>['Corner 3','Wing 3','Slot 3'].includes(shot.type)&&!profileLocation(shot)).slice().sort((a,b)=>String(a.date||'').localeCompare(String(b.date||''))||String(a.id||'').localeCompare(String(b.id||'')));
@@ -73,6 +81,28 @@ function legacySidedTotals(){
    seen+=count;leftTotal+=left;
   }
   balance.set(balanceKey,(balance.get(balanceKey)||0)+2*leftTotal-total);
+ }
+ return totals;
+}
+const midrangeNames=['Midrange Corner Left','Midrange Corner Right','Midrange Wing Left','Midrange Wing Right','Midrange Key'];
+function legacyMidrangeTotals(){
+ const totals=new Map(),playerCounts=new Map(),teamCounts={made:[0,0,0,0,0],missed:[0,0,0,0,0]};
+ const legacy=state.shooting.filter(shot=>['Midrange','Midrange Low','Midrange High'].includes(shot.type)&&!profileLocation(shot)).slice().sort((a,b)=>String(a.date||'').localeCompare(String(b.date||''))||String(a.id||'').localeCompare(String(b.id||'')));
+ const hash=value=>{let n=2166136261;for(const char of value){n^=char.charCodeAt(0);n=Math.imul(n,16777619)}return n>>>0};
+ for(const shot of legacy){
+  const attempts=Number(shot.attempts),makes=Number(shot.makes);
+  if(!Number.isInteger(attempts)||!Number.isInteger(makes)||attempts<1||makes<0||makes>attempts)continue;
+  const parts=midrangeNames.map(()=>({makes:0,attempts:0}));totals.set(shot.id,parts);
+  for(const [outcome,count] of [['made',makes],['missed',attempts-makes]]){
+   const key=String(shot.playerId)+'|'+outcome;
+   if(!playerCounts.has(key))playerCounts.set(key,[0,0,0,0,0]);
+   const own=playerCounts.get(key),team=teamCounts[outcome];
+   for(let unit=0;unit<count;unit++){
+    const zone=[0,1,2,3,4].sort((a,b)=>own[a]-own[b]||team[a]-team[b]||hash(String(shot.id)+'|'+outcome+'|'+unit+'|'+a)-hash(String(shot.id)+'|'+outcome+'|'+unit+'|'+b))[0];
+    own[zone]++;team[zone]++;parts[zone].attempts++;
+    if(outcome==='made')parts[zone].makes++;
+   }
+  }
  }
  return totals;
 }
@@ -128,7 +158,8 @@ function profileRecords({allDates=profileAllDates,source=profileSource,player=pr
  }
  // Older unsided drill results have no position. Divide their attempts between sides in the view only.
  const legacySides=legacySidedTotals();
- return records.flatMap(record=>{
+ const legacyMidrange=legacyMidrangeTotals();
+ const sided=records.flatMap(record=>{
   if(profileLocation(record)||!['Corner 3','Wing 3','Slot 3'].includes(record.type))return [record];
   const split=legacySides.get(record.id);
   const leftAttempts=split?.leftAttempts??Math.ceil(record.attempts/2);
@@ -138,15 +169,73 @@ function profileRecords({allDates=profileAllDates,source=profileSource,player=pr
   const leftName=record.type+' Left',rightName=record.type+' Right';
   return [{...record,type:leftName,category:leftName,zone:profileZone({type:leftName}),attempts:leftAttempts,makes:leftMakes},{...record,type:rightName,category:rightName,zone:profileZone({type:rightName}),attempts:rightAttempts,makes:rightMakes}].filter(part=>part.attempts>0);
  });
+ return sided.flatMap(record=>{
+  if(!['Midrange','Midrange Low','Midrange High'].includes(record.type))return [record];
+  if(profileLocation(record)){
+   const name=profileZones.find(zone=>zone.id===record.zone)?.name;
+   return name?[{...record,type:name,category:name}]:[record];
+  }
+  const parts=legacyMidrange.get(record.id);
+  if(!parts)return [record];
+  return parts.flatMap((part,index)=>part.attempts?[{...record,type:midrangeNames[index],category:midrangeNames[index],zone:profileZone({type:midrangeNames[index]}),attempts:part.attempts,makes:part.makes}]:[]);
+ });
 }
 const profileHeatColors=['#dc2626','#f97316','#facc15','#a3e635','#16a34a'];
-const profileHeatThresholds={rim:[45,50,60,65],floaters:[30,35,45,50],midLow:[30,35,45,50],midHigh:[25,30,40,45],cornerLeft:[20,25,35,40],cornerRight:[20,25,35,40],wingLeft:[20,25,35,40],wingRight:[20,25,35,40],slotLeft:[20,25,35,40],slotRight:[20,25,35,40],top:[20,25,35,40],free:[50,60,70,80]};
+const profileHeatThresholds={rim:[45,50,60,65],floaters:[30,35,45,50],midCornerLeft:[30,35,45,50],midCornerRight:[30,35,45,50],midWingLeft:[25,30,40,45],midWingRight:[25,30,40,45],midKey:[25,30,40,45],cornerLeft:[20,25,35,40],cornerRight:[20,25,35,40],wingLeft:[20,25,35,40],wingRight:[20,25,35,40],slotLeft:[20,25,35,40],slotRight:[20,25,35,40],top:[20,25,35,40],free:[50,60,70,80]};
 function profileColor(makes,attempts,zone){
  if(!attempts)return '#25313d';
  const thresholds=profileHeatThresholds[zone];if(!thresholds)return '#25313d';
  // Compare unrounded percentages so values below a cutoff stay in their band.
  const band=thresholds.filter(cutoff=>100*makes>=cutoff*attempts).length;
  return profileHeatColors[band];
+}
+function profileGameStats(games,playerId=null,allDates=profileAllDates){
+ const api=window.PTGameStatTotals;
+ const totals=new Map(api.stats.map(stat=>[stat.key,null]));
+ const eligible=games.filter(game=>(game.played||game.final||game.events?.length||game.playerStats?.length)&&(allDates||dateInRange(game.date,'court')));
+ const boards=api.totalsFor(eligible,isTestPlayerId);
+ for(const stat of api.stats){
+  const rows=playerId?[boards.get(stat.key).get(playerId)].filter(Boolean):[...boards.get(stat.key).values()];
+  if(rows.length)totals.set(stat.key,rows.reduce((sum,row)=>sum+row.value,0));
+ }
+ return {totals,hasGames:totals.get('gp')!==null};
+}
+function profileSituationStats(playerId,allDates=profileAllDates){
+ const {totals}=window.PTGameSituationLeaderboardData(state,date=>allDates||dateInRange(date,'court'),isTestPlayerId);
+ return {values:totals.get(playerId)||{drb:0,orb:0,to:0},hasRecords:totals.has(playerId)};
+}
+function renderProfileGameStats(playerId){
+ const totalsNode=$('profileGameTotals'),rateNode=$('profileGamePerMinute');
+ if(!totalsNode||!rateNode)return;
+ if($('profileStatsSituation')){
+  const situation=profileStatsSource==='situation';
+  $('profileStatsLive').setAttribute('aria-pressed',String(!situation));
+  $('profileStatsSituation').setAttribute('aria-pressed',String(situation));
+  $('profileGameStatsDescription').textContent=situation?'Game Situation defensive rebounds, offensive rebounds, and turnovers for the selected player and date range.':'Live Game totals for the selected player and date range.';
+  $('profileGameTotalsHeading').textContent=situation?'Game Situation Totals':'Box Score Totals';
+  $('profileGamePerMinuteSection').hidden=situation;
+  if(situation){
+   const {values,hasRecords}=profileSituationStats(playerId);
+   const labels=[['drb','Defensive Rebounds'],['orb','Offensive Rebounds'],['to','Turnovers']];
+   totalsNode.innerHTML='<div class="profile-situation-stat-row">'+labels.map(([key,label])=>`<div class="profile-game-stat"><small>${label}</small><strong>${values[key]}</strong></div>`).join('')+'</div>'+(hasRecords?'':'<p class="muted profile-game-empty">No Game Situation DRB, ORB, or TO recorded for this selection.</p>');
+   rateNode.innerHTML='';
+   return;
+  }
+ }
+ const snapshot=window.ptPlayerGameSnapshot;
+ const games=!profileIsTeam()&&!playerId?[]:!profileIsTeam()&&snapshot?.playerId===playerId?snapshot.games:state.games;
+ const {totals,hasGames}=profileGameStats(games,playerId);
+ const stats=window.PTGameStatTotals.stats;
+ const minutes=totals.get('min');
+ const format=value=>value===null?'—':Number.isInteger(value)?String(value):Number(value.toFixed(1)).toString();
+ const items=rate=>(rate?stats.filter(stat=>!['gp','gs','min'].includes(stat.key)):stats).map(stat=>{
+  const value=totals.get(stat.key),display=rate?(minutes>0&&value!==null?(value/minutes).toFixed(2):'—'):format(value);
+  const label=stat.label+(rate?' per minute':'');
+  return `<div class="profile-game-stat" title="${esc(label)}"><small>${esc(stat.short)}${rate?'/MIN':''}</small><strong>${display}</strong></div>`;
+ }).join('');
+ const note=!hasGames?'<p class="muted profile-game-empty">No Live Game stats recorded for this date range.</p>':'<p class="muted profile-game-note">— means this stat was not recorded.</p>';
+ totalsNode.innerHTML=`<div class="profile-game-stat-scroll"><div class="profile-game-stat-row">${items(false)}</div></div>${note}`;
+ rateNode.innerHTML=`<div class="profile-game-stat-scroll"><div class="profile-game-stat-row per-minute">${items(true)}</div></div>${minutes>0?note:'<p class="muted profile-game-note">Per-minute stats need recorded playing time.</p>'}`;
 }
 function renderProfile(){
  if(!document.getElementById('profiles'))return;
@@ -169,6 +258,7 @@ function renderProfile(){
  $('heatLabels').innerHTML=profileZones.map(z=>{const s=zones.get(z.id),transform=z.rotate?` transform="rotate(-90 ${z.x} ${z.y})"`:'';return `<text x="${z.x}" y="${z.y-9}" text-anchor="middle"${transform}><tspan x="${z.x}">${esc(z.name)}</tspan><tspan x="${z.x}" dy="16" class="heat-zone-value">${s.a?pct(s.m,s.a):'No shots'}</tspan>${s.a?`<tspan x="${z.x}" dy="14">${s.m}/${s.a}</tspan>`:''}</text>`}).join('');
  $('markers').innerHTML=profileSource==='game-situation'?'':records.filter(profileLocation).map(s=>`<circle cx="${Number(s.x)}" cy="${Number(s.y)}" r="3" fill="${s.makes?'#fff':'#101820'}" stroke="#fff" stroke-width="1"/>`).join('');
  $('courtMode').textContent=`${label} · ${profileAllDates?'Full season':dateRangeLabel('court')} · ${mapped} of ${attempts} attempts mapped${attempts>mapped?' · '+(attempts-mapped)+' without a court zone':''}${attempts?'':'. No shots recorded for this selection.'}`;
+ renderProfileGameStats(player?.id||null);
  $('profileSummary').innerHTML=`<div class="profile-compact-stats"><span><small>Made</small><strong>${makes}</strong></span><span><small>Attempts</small><strong>${attempts}</strong></span><span><small>Shooting</small><strong>${pct(makes,attempts)}</strong></span></div>`;
  $('profileCategories').innerHTML=categories.size?table(['Category','Made / Att.','%'],[...categories].map(([name,s])=>`<tr><td>${esc(name)}</td><td>${s.m}/${s.a}</td><td>${pct(s.m,s.a)}</td></tr>`)):'<p class="muted">No shot data for this selection.</p>';
  $('monthTrend').innerHTML=[...months].sort(([a],[b])=>a.localeCompare(b)).map(([month,s])=>`<p>${esc(month)} · ${s.m}/${s.a} · ${pct(s.m,s.a)}</p>`).join('')||'<p class="muted">No monthly data.</p>';
@@ -213,6 +303,7 @@ function renderShootingTrend(){
 if(document.getElementById('profiles')){
  const el=id=>document.getElementById(id);
  if(el('profilePlayer'))el('profilePlayer').onchange=renderProfile;
+ for(const [id,source] of [['profileStatsLive','live'],['profileStatsSituation','situation']])if(el(id))el(id).onclick=()=>{profileStatsSource=source;renderProfileGameStats(el('profilePlayer')?.value||null)};
  if(el('trendShotType')){el('trendShotType').onchange=renderShootingTrend;el('trendMetric').onchange=renderShootingTrend}
  if(el('teamTrendChart')){let resizeTimer;window.addEventListener('resize',()=>{clearTimeout(resizeTimer);resizeTimer=setTimeout(renderShootingTrend,100)})}
  for(const [source,,...ids] of profileSources)for(const id of ids){const button=el(id);if(button)button.onclick=()=>{profileSource=source;renderProfile()}}

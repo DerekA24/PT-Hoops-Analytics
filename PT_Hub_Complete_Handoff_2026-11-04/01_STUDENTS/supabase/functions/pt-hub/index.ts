@@ -2,6 +2,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.0";
 const url=Deno.env.get("SUPABASE_URL")!,secret=Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const db=createClient(url,secret,{auth:{persistSession:false}});
 const SHOT_TYPES=["TWO_M","TWO_X","THREE_M","THREE_X","FT_M","FT_X"];
+const SITUATION_EVENT_TYPES=[...SHOT_TYPES,"REB","DRB","ORB","TO"];
 const SCHEDULE_RECORD_ID="00000000-0000-0000-0000-000000000001";
 const DAY_MS=864e5,DATE_WINDOW_MS=366*DAY_MS,FUTURE_SLACK_MS=DAY_MS;
 const PUBLIC_UNDO_WINDOW_MS=24*36e5,PUBLIC_SHOT_DELETE_WINDOW_MS=15*6e4;
@@ -98,11 +99,30 @@ Deno.serve(async req=>{
  schedule?empty():db.from("pt_drills").select("id,name,active").eq("active",true).limit(250),
  full||coach||player?fetchAllShots(player?playerId:undefined):empty<ShotSnapshotRow>(),
  full||coach?db.from("pt_drill_results").select("id,batch_id,player_id,result,practice_date,recorded_at,created_at").order("recorded_at",{ascending:false}).limit(10000):empty(),
- full||coach||schedule?db.from("pt_schedule_records").select("id,payload,updated_at").order("updated_at",{ascending:false}).limit(10):empty(),
+ full||coach||schedule||player?db.from("pt_schedule_records").select("id,payload,updated_at").order("updated_at",{ascending:false}).limit(10):empty(),
  full?db.from("pt_game_situations").select("id,practice_date,payload,updated_at").order("created_at",{ascending:false}).limit(10000):empty(),
  full||player||situation?fetchAllSituationShots(player?playerId:undefined):empty<SituationShotRow>()]);
  if(p.error||d.error||s.error||r.error||sc.error||g.error||gs.error)return fail("Shared data unavailable",500);
- return ok({scope,players:p.data,drills:d.data,shots:s.data,drillResults:r.data,scheduleRecords:sc.data,gameSituations:g.data,gameSituationShots:gs.data});
+ // Player profiles receive only the selected athlete's game box scores and events.
+ // The complete schedule payload remains server-side for this snapshot scope.
+ const playerGames=player?(()=>{
+  const games=new Map<string,Record<string,unknown>>();
+  for(const record of sc.data||[]){
+   const payload=record.payload as Record<string,unknown>|null;
+   for(const raw of Array.isArray(payload?.games)?payload.games:[]){
+    if(!raw||typeof raw!=="object"||Array.isArray(raw))continue;
+    const game=raw as Record<string,unknown>,id=String(game.id||"");
+    if(!id||games.has(id))continue;
+    const rows=Array.isArray(game.playerStats)?game.playerStats.filter((row:Record<string,unknown>)=>row?.playerId===playerId):[];
+    const events=Array.isArray(game.events)?game.events.filter((event:Record<string,unknown>)=>event?.playerId===playerId&&event.team!=="opponent"):[];
+    const starters=Array.isArray(game.starters)?game.starters.filter((id:unknown)=>id===playerId):[];
+    if(!rows.length&&!events.length&&!starters.length)continue;
+    games.set(id,{id,date:game.date,played:game.played,final:game.final,statsImport:game.statsImport,playerStats:rows,events,starters});
+   }
+  }
+  return [...games.values()];
+ })():undefined;
+ return ok({scope,players:p.data,drills:d.data,shots:s.data,drillResults:r.data,scheduleRecords:player?[]:sc.data,playerGames,gameSituations:g.data,gameSituationShots:gs.data});
  }
  if(!["POST","PATCH","DELETE"].includes(req.method))return fail("Unknown operation",404);
  let body:Record<string,unknown>;
@@ -125,7 +145,7 @@ Deno.serve(async req=>{
  return error?fail("Drill result could not be saved",500):ok({ok:true,id});
  }
  if(action==="game_situation_shot"&&req.method==="POST"){
-  if(!uuid.test(id)||!uuid.test(str(body.player_id))||!isoDate(body.practice_date)||!SHOT_TYPES.includes(str(body.shot_type))||!isoStamp(body.recorded_at)||!courtPoint(body.court_x,body.court_y))return fail("Invalid game situation shot");
+  if(!uuid.test(id)||!uuid.test(str(body.player_id))||!isoDate(body.practice_date)||!SITUATION_EVENT_TYPES.includes(str(body.shot_type))||!isoStamp(body.recorded_at)||!courtPoint(body.court_x,body.court_y))return fail("Invalid game situation event");
   if(!await activePlayer(str(body.player_id)))return fail("Unknown player",403);
   const {error}=await db.from("pt_game_situation_shots").upsert({id,player_id:body.player_id,practice_date:body.practice_date,shot_type:body.shot_type,court_x:body.court_x,court_y:body.court_y,recorded_at:stamp(body.recorded_at),owner_token_hash:tokenOk(body.owner_token)?await ownerHash(body.owner_token):null},{onConflict:"id",ignoreDuplicates:true});
   return error?fail("Game situation shot could not be saved",500):ok({ok:true,id});
@@ -155,7 +175,7 @@ Deno.serve(async req=>{
   const {error}=await db.from("pt_game_situations").upsert({id,practice_date:body.practice_date,payload},{onConflict:"id",ignoreDuplicates:true});
   if(error)return fail("Game situation could not be saved",500);
   const events=(Array.isArray(payload.events)?payload.events:[]) as Record<string,unknown>[];
-  const candidates=events.filter(event=>uuid.test(str(event.id))&&uuid.test(str(event.playerId))&&SHOT_TYPES.includes(str(event.type))&&courtPoint(event.x,event.y)&&isoStamp(event.recordedAt));
+  const candidates=events.filter(event=>uuid.test(str(event.id))&&uuid.test(str(event.playerId))&&SITUATION_EVENT_TYPES.includes(str(event.type))&&courtPoint(event.x,event.y)&&isoStamp(event.recordedAt));
   const known=await activePlayers([...new Set(candidates.map(event=>str(event.playerId)))]);
   const shots=candidates.filter(event=>known.has(str(event.playerId))).map(event=>({id:event.id,player_id:event.playerId,practice_date:body.practice_date,shot_type:event.type,court_x:event.x,court_y:event.y,recorded_at:stamp(str(event.recordedAt))}));
   if(shots.length){const {error:shotError}=await db.from("pt_game_situation_shots").upsert(shots,{onConflict:"id",ignoreDuplicates:true});if(shotError)return fail("Legacy shots could not be copied",500)}

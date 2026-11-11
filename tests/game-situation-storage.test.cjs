@@ -33,6 +33,13 @@ test('undo hides a migrated shot without deleting its historical session', () =>
   assert.equal(records(stateWith([{...shot, undone:true}])).length, 0);
 });
 
+test('defensive and offensive rebounds and turnovers stay out of shooting totals', () => {
+  for(const type of ['REB','DRB','ORB','TO']){
+    const state={shooting:[],court:[],gameSituations:[],gameSituationShots:[{...shot,type}]};
+    assert.equal(records(state).length,0);
+  }
+});
+
 test('cloud sync writes one shot and an undo without rewriting a session', async () => {
   const cloud = fs.readFileSync(path.join(__dirname, '..', 'PT_Hub_Complete_Handoff_2026-11-04', '01_STUDENTS', 'frontend', 'assets', 'cloud.js'), 'utf8');
   const calls = [];
@@ -46,6 +53,8 @@ test('cloud sync writes one shot and an undo without rewriting a session', async
     localStorage: {getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value)},
     fetch: async (url, options) => {
       calls.push({url, method:options.method, body:options.body && JSON.parse(options.body)});
+      if(options.method==='POST'&&options.body&&JSON.parse(options.body).shot_type==='DRB')
+        return {ok:false,status:400,json:async()=>({error:'Invalid game situation event'})};
       return {ok:true, json:async () => options.method==='GET'
         ? {scope:'entry',players:[],drills:[],shots:[],drillResults:[],scheduleRecords:[],gameSituations:[],gameSituationShots:[]}
         : {ok:true}};
@@ -64,6 +73,11 @@ test('cloud sync writes one shot and an undo without rewriting a session', async
   context.window.ptCloudQueueSave();
   await new Promise(resolve => setTimeout(resolve, 160));
   assert.equal(calls.filter(call => call.method==='PATCH' && call.url.includes('action=game_situation_shot')).length, 1);
+  state.gameSituationShots.push({...shot,id:'44444444-4444-4444-8444-444444444444',type:'DRB'});
+  context.window.ptCloudQueueSave();
+  await new Promise(resolve => setTimeout(resolve, 160));
+  assert.equal(calls.filter(call => call.method==='POST' && call.body?.shot_type==='DRB').length,1);
+  assert.equal(calls.filter(call => call.method==='POST' && call.body?.shot_type==='REB').length,1);
 });
 
 test('an older backend keeps receiving session saves until migration is deployed', async () => {
