@@ -7,7 +7,11 @@ const SCHEDULE_RECORD_ID="00000000-0000-0000-0000-000000000001";
 const DAY_MS=864e5,DATE_WINDOW_MS=366*DAY_MS,FUTURE_SLACK_MS=DAY_MS;
 const PUBLIC_UNDO_WINDOW_MS=24*36e5,PUBLIC_SHOT_DELETE_WINDOW_MS=15*6e4;
 const MAX_PAGES=100,PAGE_SIZE=1000,MAX_PAYLOAD_CHARS=200000,MAX_SCHEDULE_ITEMS=400,MAX_ACTIVE_PLAYERS=150,MAX_LABEL_CHARS=80;
-const MIN_CODE_LENGTH=6,MAX_CODE_LENGTH=64,LIMIT_GET=120,LIMIT_WRITE=80,LIMIT_GLOBAL_WRITE=600;
+const MIN_CODE_LENGTH=6,MAX_CODE_LENGTH=64,MAX_BATCH=100;
+// Rate limits per minute, checked in three layers. A client that sends its device id gets its own request budget; a client without one
+// shares the smaller legacy budget of its network address. Every network address also has a ceiling, since device ids are self-declared.
+// Finally all writes together are capped by row count, so a batch of 100 shots costs 100 and a flood of batches cannot outrun the cap.
+const LIMIT_GET_DEVICE=40,LIMIT_WRITE_DEVICE=120,LIMIT_GET_IP=120,LIMIT_WRITE_IP=80,LIMIT_GET_IP_CEILING=600,LIMIT_WRITE_IP_CEILING=300,LIMIT_GLOBAL_WRITE_ROWS=3000;
 const DEFAULT_NOTE="Public courtside entry";
 const allowedOrigin=(origin:string|null)=>{
  if(origin==="https://ptbasketballhub.netlify.app")return origin;
@@ -16,7 +20,7 @@ const allowedOrigin=(origin:string|null)=>{
  return null;
 };
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const CORS_HEADERS={"Access-Control-Allow-Methods":"GET,POST,PATCH,DELETE,OPTIONS","Access-Control-Allow-Headers":"content-type,authorization,apikey,x-client-info,x-coach-access-code","Vary":"Origin"};
+const CORS_HEADERS={"Access-Control-Allow-Methods":"GET,POST,PATCH,DELETE,OPTIONS","Access-Control-Allow-Headers":"content-type,x-coach-access-code,x-pt-device","Vary":"Origin"};
 function reply(v:unknown,s=200,origin:string|null=null){return new Response(JSON.stringify(v),{status:s,headers:{"Content-Type":"application/json","Cache-Control":"no-store",...CORS_HEADERS,...(origin?{"Access-Control-Allow-Origin":origin}:{})}})}
 const str=(v:unknown)=>typeof v==="string"?v:"";
 const isoDate=(s:unknown):s is string=>{if(typeof s!=="string"||!/^\d{4}-\d{2}-\d{2}$/.test(s))return false;const t=Date.parse(s+"T00:00:00Z");return Number.isFinite(t)&&new Date(t).toISOString().startsWith(s)&&Math.abs(t-Date.now())<DATE_WINDOW_MS};
@@ -24,11 +28,34 @@ const isoStamp=(s:unknown):s is string=>{if(typeof s!=="string"||!/^\d{4}-\d{2}-
 const stamp=(s:string)=>new Date(Math.min(Date.parse(s),Date.now())).toISOString();
 const courtPoint=(x:unknown,y:unknown)=>Number.isInteger(x)&&(x as number)>=12&&(x as number)<=488&&Number.isInteger(y)&&(y as number)>=12&&(y as number)<=458;
 const tokenOk=(t:unknown):t is string=>typeof t==="string"&&/^[A-Za-z0-9_-]{16,128}$/.test(t);
+const deviceOk=(t:string)=>/^[0-9a-f]{32}$/i.test(t);
+type Rejection={id:string;error:string};
+const asRecord=(v:unknown):Record<string,unknown>=>v&&typeof v==="object"&&!Array.isArray(v)?v as Record<string,unknown>:{};
+const batchItems=(v:unknown):Record<string,unknown>[]|null=>Array.isArray(v)&&v.length>0&&v.length<=MAX_BATCH?v.map(asRecord):null;
 const ownerHash=(t:string)=>sha256("pt-hub-owner:"+t);
 const sameHash=(a:string,b:string)=>{if(a.length!==b.length)return false;let diff=0;for(let i=0;i<a.length;i++)diff|=a.charCodeAt(i)^b.charCodeAt(i);return diff===0};
 async function sha256(text:string){const bytes=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(text));return Array.from(new Uint8Array(bytes),x=>x.toString(16).padStart(2,"0")).join("")}
 async function activePlayer(id:string){const {data}=await db.from("pt_players").select("id").eq("id",id).eq("active",true).maybeSingle();return !!data}
 async function activePlayers(ids:string[]){if(!ids.length)return new Set<string>();const {data}=await db.from("pt_players").select("id").in("id",ids).eq("active",true);return new Set((data||[]).map(row=>row.id as string))}
+async function activeDrills(ids:string[]){if(!ids.length)return new Set<string>();const {data}=await db.from("pt_drills").select("id").in("id",ids).eq("active",true);return new Set((data||[]).map(row=>row.id as string))}
+// Shooting and drill-result rows are validated the same way whether they arrive alone or in a batch.
+const shotProblem=(b:Record<string,unknown>)=>!uuid.test(str(b.id))||!uuid.test(str(b.player_id))||!uuid.test(str(b.drill_id))||typeof b.made!=="boolean"||!isoDate(b.practice_date)?"Invalid shooting data":b.recorded_at!==undefined&&!isoStamp(b.recorded_at)?"Invalid recording timestamp":b.label!==undefined&&typeof b.label!=="string"?"Invalid drill label":"";
+async function shotRow(b:Record<string,unknown>){const label=str(b.label).trim().slice(0,MAX_LABEL_CHARS);return {id:str(b.id),player_id:b.player_id,drill_id:b.drill_id,made:b.made,practice_date:b.practice_date,notes:label||DEFAULT_NOTE,owner_token_hash:tokenOk(b.owner_token)?await ownerHash(b.owner_token):null,...(isoStamp(b.recorded_at)?{created_at:stamp(b.recorded_at)}:{})}}
+const resultProblem=(b:Record<string,unknown>)=>!uuid.test(str(b.id))||!uuid.test(str(b.batch_id))||!uuid.test(str(b.player_id))||!["win","loss"].includes(str(b.result))||!isoDate(b.practice_date)||!isoStamp(b.recorded_at)?"Invalid drill result":"";
+const resultRow=(b:Record<string,unknown>)=>({id:str(b.id),batch_id:b.batch_id,player_id:b.player_id,result:b.result,practice_date:b.practice_date,recorded_at:stamp(str(b.recorded_at))});
+// Split a batch into rows to write and rejections to report. Duplicate ids inside one batch collapse to the first occurrence.
+async function partition<T extends {id:string}>(items:Record<string,unknown>[],problem:(b:Record<string,unknown>)=>string,toRow:(b:Record<string,unknown>)=>T|Promise<T>,allowed:(b:Record<string,unknown>)=>boolean,denial:string){
+ const rows:T[]=[],rejected:Rejection[]=[],seen=new Set<string>();
+ for(const item of items){
+  const id=str(item.id),error=problem(item);
+  if(error){rejected.push({id,error});continue}
+  if(seen.has(id))continue;
+  seen.add(id);
+  if(!allowed(item)){rejected.push({id,error:denial});continue}
+  rows.push(await toRow(item));
+ }
+ return {rows,rejected};
+}
 type ShotSnapshotRow={id:string;player_id:string;drill_id:string;made:boolean;practice_date:string;created_at:string;notes:string|null};
 type SituationShotRow={id:string;player_id:string;practice_date:string;shot_type:string;court_x:number|null;court_y:number|null;recorded_at:string;undone:boolean};
 async function fetchAll<T>(table:string,columns:string,orderBy:string,playerId?:string){
@@ -47,16 +74,9 @@ async function fetchAll<T>(table:string,columns:string,orderBy:string,playerId?:
 const fetchAllShots=(playerId?:string)=>fetchAll<ShotSnapshotRow>("pt_shots","id,player_id,drill_id,made,practice_date,created_at,notes","created_at",playerId);
 const fetchAllSituationShots=(playerId?:string)=>fetchAll<SituationShotRow>("pt_game_situation_shots","id,player_id,practice_date,shot_type,court_x,court_y,recorded_at,undone","recorded_at",playerId);
 type CoachCheck={error:string;status:number}|null;
-const hasCoachCredential=(req:Request)=>!!(req.headers.get("authorization")||req.headers.get("x-coach-access-code"));
-// Coach writes accept either a Supabase coach session or the shared access code. The code row is seeded by migration; requests never create it.
+const hasCoachCredential=(req:Request)=>!!req.headers.get("x-coach-access-code");
+// Coach writes carry the shared access code. Nobody signs in; the code row is seeded from a function secret and requests never create it.
 async function verifyCoach(req:Request):Promise<CoachCheck>{
- const bearer=req.headers.get("authorization")?.replace(/^Bearer\s+/i,"")||"";
- if(bearer){
-  const {data:{user},error:authError}=await db.auth.getUser(bearer);
-  if(authError||!user)return {error:"Coach session invalid",status:401};
-  const {data:coach}=await db.from("pt_coaches").select("user_id").eq("user_id",user.id).maybeSingle();
-  return coach?null:{error:"Coach permission required",status:403};
- }
  const code=req.headers.get("x-coach-access-code")?.trim()||"";
  if(!code)return {error:"Coach access required",status:401};
  const {data:configured,error:accessError}=await db.from("pt_coach_access").select("code_hash").eq("id","primary").maybeSingle();
@@ -81,13 +101,15 @@ Deno.serve(async req=>{
  const ok=(v:unknown,s=200)=>reply(v,s,origin),fail=(m:string,c=400)=>reply({error:m},c,origin);
  const action=new URL(req.url).searchParams.get("action");
  try{
+ const device=req.headers.get("x-pt-device")?.trim()||"";
  const ip=req.headers.get("cf-connecting-ip")||req.headers.get("x-real-ip")||req.headers.get("x-forwarded-for")?.split(",")[0]?.trim()||"unknown";
- const bucket=(await sha256("pt-hub-v1:"+ip)).slice(0,32);
- const write=req.method!=="GET";
- const [own,shared]=await Promise.all([
-  db.rpc("pt_hub_allow_request",{p_bucket:bucket+":"+req.method,p_limit:write?LIMIT_WRITE:LIMIT_GET}),
-  write?db.rpc("pt_hub_allow_request",{p_bucket:"global:write",p_limit:LIMIT_GLOBAL_WRITE}):Promise.resolve({data:true,error:null})]);
- if(own.error||!own.data||shared.error||!shared.data)return fail("Rate limit reached",429);
+ const perDevice=deviceOk(device),network=(await sha256("pt-hub-v1:"+ip)).slice(0,32);
+ const write=req.method!=="GET",kind=write?":write":":read";
+ const client=perDevice?"device:"+device.toLowerCase():"ip:"+network;
+ const clientLimit=perDevice?(write?LIMIT_WRITE_DEVICE:LIMIT_GET_DEVICE):(write?LIMIT_WRITE_IP:LIMIT_GET_IP);
+ const allow=(bucket:string,limit:number,cost=1)=>db.rpc("pt_hub_allow_request",{p_bucket:bucket,p_limit:limit,p_cost:cost}).then(r=>!r.error&&r.data===true);
+ const [ownOk,networkOk]=await Promise.all([allow(client+kind,clientLimit),perDevice?allow("net:"+network+kind,write?LIMIT_WRITE_IP_CEILING:LIMIT_GET_IP_CEILING):Promise.resolve(true)]);
+ if(!ownOk||!networkOk)return fail("Rate limit reached",429);
  if(req.method==="GET"&&action==="snapshot"){
  const params=new URL(req.url).searchParams;
  const scope=params.get("scope")||"full",playerId=params.get("player_id")||"";
@@ -107,7 +129,7 @@ Deno.serve(async req=>{
  // The complete schedule payload remains server-side for this snapshot scope.
  const playerGames=player?(()=>{
   const games=new Map<string,Record<string,unknown>>();
-  for(const record of sc.data||[]){
+  for(const record of (sc.data||[]) as {payload:unknown}[]){
    const payload=record.payload as Record<string,unknown>|null;
    for(const raw of Array.isArray(payload?.games)?payload.games:[]){
     if(!raw||typeof raw!=="object"||Array.isArray(raw))continue;
@@ -128,21 +150,28 @@ Deno.serve(async req=>{
  let body:Record<string,unknown>;
  try{const parsed:unknown=await req.json();if(!parsed||typeof parsed!=="object"||Array.isArray(parsed))return fail("Invalid body");body=parsed as Record<string,unknown>}catch{return fail("Invalid JSON body")}
  const id=str(body.id);
- if(req.method==="POST"&&action==="shot"){
- if(!uuid.test(id)||!uuid.test(str(body.player_id))||!uuid.test(str(body.drill_id))||typeof body.made!=="boolean"||!isoDate(body.practice_date))return fail("Invalid shooting data");
- if(body.recorded_at!==undefined&&!isoStamp(body.recorded_at))return fail("Invalid recording timestamp");
- if(body.label!==undefined&&typeof body.label!=="string")return fail("Invalid drill label");
- const [p,d]=await Promise.all([activePlayer(str(body.player_id)),db.from("pt_drills").select("id").eq("id",str(body.drill_id)).eq("active",true).maybeSingle()]);
- if(!p||!d.data)return fail("Unknown player or drill",403);
- const label=str(body.label).trim().slice(0,MAX_LABEL_CHARS);
- const {error}=await db.from("pt_shots").upsert({id,player_id:body.player_id,drill_id:body.drill_id,made:body.made,practice_date:body.practice_date,entered_by:null,notes:label||DEFAULT_NOTE,owner_token_hash:tokenOk(body.owner_token)?await ownerHash(body.owner_token):null,...(isoStamp(body.recorded_at)?{created_at:stamp(body.recorded_at)}:{})},{onConflict:"id",ignoreDuplicates:true});
- return error?fail("Shot could not be saved",500):ok({ok:true,id});
+ // The shared write budget is charged per row, after the body is known, so a refused client never consumes it.
+ const rows=action==="shots"&&Array.isArray(body.shots)?body.shots.length:action==="drill_results"&&Array.isArray(body.results)?body.results.length:1;
+ if(!await allow("global:write",LIMIT_GLOBAL_WRITE_ROWS,Math.min(Math.max(rows,1),MAX_BATCH)))return fail("Rate limit reached",429);
+ // Courtside uploads arrive as batches: one request per device per flush instead of one per tap. The single-record forms stay for older cached pages.
+ if(req.method==="POST"&&(action==="shots"||action==="shot")){
+  const items=action==="shots"?batchItems(body.shots):[body];
+  if(!items)return fail("Invalid shot batch");
+  const candidates=items.filter(item=>!shotProblem(item));
+  const [players,drills]=await Promise.all([activePlayers([...new Set(candidates.map(item=>str(item.player_id)))]),activeDrills([...new Set(candidates.map(item=>str(item.drill_id)))])]);
+  const {rows,rejected}=await partition(items,shotProblem,shotRow,item=>players.has(str(item.player_id))&&drills.has(str(item.drill_id)),"Unknown player or drill");
+  if(action==="shot"&&rejected.length)return fail(rejected[0].error,rejected[0].error==="Unknown player or drill"?403:400);
+  if(rows.length){const {error}=await db.from("pt_shots").upsert(rows,{onConflict:"id",ignoreDuplicates:true});if(error)return fail("Shots could not be saved",500)}
+  return ok(action==="shot"?{ok:true,id}:{ok:true,saved:rows.map(row=>row.id),rejected});
  }
- if(req.method==="POST"&&action==="drill_result"){
- if(!uuid.test(id)||!uuid.test(str(body.batch_id))||!uuid.test(str(body.player_id))||!["win","loss"].includes(str(body.result))||!isoDate(body.practice_date)||!isoStamp(body.recorded_at))return fail("Invalid drill result");
- if(!await activePlayer(str(body.player_id)))return fail("Unknown player",403);
- const {error}=await db.from("pt_drill_results").upsert({id,batch_id:body.batch_id,player_id:body.player_id,result:body.result,practice_date:body.practice_date,recorded_at:stamp(body.recorded_at)},{onConflict:"id",ignoreDuplicates:true});
- return error?fail("Drill result could not be saved",500):ok({ok:true,id});
+ if(req.method==="POST"&&(action==="drill_results"||action==="drill_result")){
+  const items=action==="drill_results"?batchItems(body.results):[body];
+  if(!items)return fail("Invalid drill result batch");
+  const players=await activePlayers([...new Set(items.filter(item=>!resultProblem(item)).map(item=>str(item.player_id)))]);
+  const {rows,rejected}=await partition(items,resultProblem,resultRow,item=>players.has(str(item.player_id)),"Unknown player");
+  if(action==="drill_result"&&rejected.length)return fail(rejected[0].error,rejected[0].error==="Unknown player"?403:400);
+  if(rows.length){const {error}=await db.from("pt_drill_results").upsert(rows,{onConflict:"id",ignoreDuplicates:true});if(error)return fail("Drill results could not be saved",500)}
+  return ok(action==="drill_result"?{ok:true,id}:{ok:true,saved:rows.map(row=>row.id),rejected});
  }
  if(action==="game_situation_shot"&&req.method==="POST"){
   if(!uuid.test(id)||!uuid.test(str(body.player_id))||!isoDate(body.practice_date)||!SITUATION_EVENT_TYPES.includes(str(body.shot_type))||!isoStamp(body.recorded_at)||!courtPoint(body.court_x,body.court_y))return fail("Invalid game situation event");

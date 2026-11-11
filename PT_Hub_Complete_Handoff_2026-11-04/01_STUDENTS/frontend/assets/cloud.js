@@ -3,6 +3,8 @@
  const base='https://jbznaeunhtqgagnqweqw.supabase.co';
  const endpoint=base+'/functions/v1/pt-hub';
  const REQUEST_TIMEOUT_MS=20000,MASS_DELETE_LIMIT=10,RETRY_BASE_MS=1000,RETRY_MAX_MS=60000,DEFAULT_NOTE='Public courtside entry';
+ // One upload carries up to MAX_BATCH records, and a screen wake only refetches when the last snapshot is older than REFRESH_MIN_GAP_MS.
+ const MAX_BATCH=100,REFRESH_MIN_GAP_MS=20000;
  const page=location.pathname.split('/').pop()||'index.html';
  const fullPages=new Set(['leaderboards.html','other-leaderboards.html','team-profile.html']);
  const schedulePages=new Set(['live-game.html','schedule.html']);
@@ -12,7 +14,7 @@
  const scope=()=>fullPages.has(page)?'full':coachPage&&window.PTCoachAccess?.isUnlocked()?'coach':page==='schedule.html'?'schedule-only':schedulePages.has(page)?'schedule':playerPage?'player':situationPage?'situation':'entry';
  const shotIds=new Set(state.shooting.map(s=>s.id));
  const knownPlayers=new Set(state.players.map(p=>p.id));
- const pendingKey='pt_hub_pending_v1',rejectedKey='pt_hub_rejected_v1',cloudPlayersKey='pt_hub_cloud_players_v1',pendingResultsKey='pt_hub_pending_drill_results_v1',tokensKey='pt_hub_owner_tokens_v1',MAX_OWNER_TOKENS=5000;
+ const pendingKey='pt_hub_pending_v1',rejectedKey='pt_hub_rejected_v1',cloudPlayersKey='pt_hub_cloud_players_v1',pendingResultsKey='pt_hub_pending_drill_results_v1',tokensKey='pt_hub_owner_tokens_v1',deviceKey='pt_hub_device_v1',MAX_OWNER_TOKENS=5000;
  const readJson=(key,fallback)=>{try{const value=JSON.parse(localStorage.getItem(key)||'null');return value??fallback}catch{return fallback}};
  const writeJson=(key,value)=>{try{localStorage.setItem(key,JSON.stringify(value))}catch{}};
  let pending=readJson(pendingKey,[]).filter(id=>typeof id==='string');
@@ -21,10 +23,12 @@
  // Each uploaded shot carries a random owner token so this device, and only this device, can undo it without a coach code.
  let ownerTokens=readJson(tokensKey,{});if(!ownerTokens||typeof ownerTokens!=='object'||Array.isArray(ownerTokens))ownerTokens={};
  const randomToken=()=>{const bytes=new Uint8Array(24);if(typeof crypto!=='undefined'&&crypto.getRandomValues)crypto.getRandomValues(bytes);else for(let i=0;i<bytes.length;i++)bytes[i]=Math.random()*256|0;return Array.from(bytes,b=>b.toString(16).padStart(2,'0')).join('')};
+ // The server rate-limits per device id instead of per network address, so a gym full of phones on one Wi-Fi network no longer shares one budget.
+ const deviceId=(()=>{let saved=null;try{saved=localStorage.getItem(deviceKey)}catch{}if(typeof saved==='string'&&/^[0-9a-f]{32}$/.test(saved))return saved;const fresh=randomToken().slice(0,32);try{localStorage.setItem(deviceKey,fresh)}catch{}return fresh})();
  const rememberTokens=()=>{const keys=Object.keys(ownerTokens);if(keys.length>MAX_OWNER_TOKENS)for(const key of keys.slice(0,keys.length-MAX_OWNER_TOKENS))delete ownerTokens[key];writeJson(tokensKey,ownerTokens)};
  const ownerToken=id=>{if(!ownerTokens[id]){ownerTokens[id]=randomToken();rememberTokens()}return ownerTokens[id]};
  const forgetToken=id=>{if(ownerTokens[id]){delete ownerTokens[id];rememberTokens()}};
- let roster=new Map(),drills=new Map(),cloudShots=new Map(),cloudDrillResults=new Set(),cloudSituationShots=new Map(),situationLoaded=false,situationSyncing=false,legacySituationMode=false,cloudSituationSignature='',cloudScheduleSignature='',scheduleLoaded=false,busy=false,lastError='',resultRetryDelay=RETRY_BASE_MS,resultRetryTimer=null;
+ let roster=new Map(),drills=new Map(),cloudShots=new Map(),cloudDrillResults=new Set(),cloudSituationShots=new Map(),situationLoaded=false,situationSyncing=false,legacySituationMode=false,cloudSituationSignature='',cloudScheduleSignature='',scheduleLoaded=false,busy=false,lastError='',resultRetryDelay=RETRY_BASE_MS,resultRetryTimer=null,shotRetryDelay=RETRY_BASE_MS,shotRetryTimer=null,lastLoadAt=0;
  const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  const status=document.createElement('div');status.id='ptSharedStatus';status.setAttribute('role','status');status.textContent='Connecting shared team data…';
  if(!fullPages.has(page)&&!playerPage)status.hidden=true;
@@ -38,7 +42,7 @@
  const isClientError=e=>Number.isInteger(e?.status)&&e.status>=400&&e.status<500&&e.status!==429;
  function request(action,method='GET',body=null,token='',query=''){
    const controller=typeof AbortController==='function'?new AbortController():null,timer=controller?setTimeout(()=>controller.abort(),REQUEST_TIMEOUT_MS):null;
-   return fetch(endpoint+'?action='+encodeURIComponent(action)+query,{method,...(controller?{signal:controller.signal}:{}),headers:{'Content-Type':'application/json',...(token?{'X-Coach-Access-Code':token}:{})},...(body?{body:JSON.stringify(body)}:{})})
+   return fetch(endpoint+'?action='+encodeURIComponent(action)+query,{method,...(controller?{signal:controller.signal}:{}),headers:{'Content-Type':'application/json','X-PT-Device':deviceId,...(token?{'X-Coach-Access-Code':token}:{})},...(body?{body:JSON.stringify(body)}:{})})
     .then(async r=>{let v;try{v=await r.json()}catch{throw Error('Cloud service unavailable')}if(!r.ok){const err=Error(v.error||'Cloud request failed');err.status=r.status;throw err}return v})
     .catch(e=>{if(e?.name==='AbortError')throw Error('Cloud request timed out');throw e})
     .finally(()=>clearTimeout(timer));
@@ -83,34 +87,56 @@
  let pendingDrillResults=readJson(pendingResultsKey,[]).filter(x=>x&&typeof x==='object'&&uuid.test(x.id||''));
  const rememberDrillResults=()=>writeJson(pendingResultsKey,pendingDrillResults);
  const reject=(id,reason)=>{rejected.push({id,reason,at:new Date().toISOString()});rememberRejected()};
+ // A batch reply names what was saved and what was refused. Anything the server did not mention stays queued and is sent again; uploads are idempotent by id.
+ // Only the server's per-record verdicts count as rejections. A failure of the whole request (old function, origin, outage) keeps every record queued.
+ const settleBatch=(reply,ids)=>{const saved=new Set((Array.isArray(reply?.saved)?reply.saved:[]).filter(id=>ids.has(id)));const refused=(Array.isArray(reply?.rejected)?reply.rejected:[]).filter(item=>item&&ids.has(item.id));for(const item of refused)reject(item.id,String(item.error||'Rejected by the shared database'));const done=new Set([...saved,...refused.map(item=>item.id)]);if(!done.size)throw Error('The shared database did not confirm the upload');return {saved,refused,done}};
+ const batchLabel=(kind,refused)=>refused.length?label(refused.length+' '+kind+(refused.length===1?' was':' were')+' rejected by the shared database: '+String(refused[0].error||''),true):label(kind.charAt(0).toUpperCase()+kind.slice(1)+' saved to the shared team database');
  async function flushDrillResults(){
   if(busy||!pendingDrillResults.length)return;
   busy=true;clearTimeout(resultRetryTimer);let retry=false;
   try{while(pendingDrillResults.length){
-   const result=pendingDrillResults[0];
-   try{await request('drill_result','POST',{id:result.id,batch_id:result.batchId,player_id:result.playerId,result:result.result,practice_date:result.date,recorded_at:result.recordedAt})}
-   catch(e){if(!isClientError(e))throw e;reject(result.id,e.message);pendingDrillResults.shift();rememberDrillResults();label('A drill result was rejected by the shared database: '+e.message,true);continue}
-   cloudDrillResults.add(result.id);pendingDrillResults.shift();rememberDrillResults();resultRetryDelay=RETRY_BASE_MS;
+   const batch=pendingDrillResults.slice(0,MAX_BATCH),ids=new Set(batch.map(r=>r.id));
+   const results=batch.map(r=>({id:r.id,batch_id:r.batchId,player_id:r.playerId,result:r.result,practice_date:r.date,recorded_at:r.recordedAt}));
+   const {saved,refused,done}=settleBatch(await request('drill_results','POST',{results}),ids);
+   for(const id of saved)cloudDrillResults.add(id);
+   pendingDrillResults=pendingDrillResults.filter(r=>!done.has(r.id));rememberDrillResults();resultRetryDelay=RETRY_BASE_MS;
+   batchLabel('drill results',refused);
   }}catch(e){retry=true;label('Drill result saved on this device. Cloud retry pending: '+e.message,true)}
   finally{busy=false;if(retry&&pendingDrillResults.length){resultRetryTimer=setTimeout(flushDrillResults,resultRetryDelay);resultRetryDelay=Math.min(RETRY_MAX_MS,resultRetryDelay*2)}}
  }
+ const shotPayload=(s,drill)=>{const customLabel=/^custom drill$/i.test(String(s.type||''))&&s.drill&&s.drill!=='Athlete Quick Entry'?String(s.drill):'';return {id:s.id,player_id:s.playerId,drill_id:drill,made:Number(s.makes)===1,practice_date:s.date,recorded_at:s.recordedAt,owner_token:ownerToken(s.id),...(customLabel?{label:customLabel}:{})}};
  // Shots that cannot sync yet (unknown roster or drill) are skipped, never allowed to block the shots behind them.
+ function readyShots(){
+   const ready=[],keep=[];let blocked='';
+   for(const id of pending){const s=state.shooting.find(x=>x.id===id);
+     if(!s)continue;
+     keep.push(id);
+     if(!roster.has(s.playerId)){blocked='This athlete is not yet in the shared roster. Coach must add them to Supabase.';continue}
+     const drill=drills.get(String(s.type||'').toLowerCase());
+     if(!drill){blocked=String(s.type||'This drill')+' needs database setup before it can sync. The shot is saved on this device.';continue}
+     ready.push(shotPayload(s,drill));
+   }
+   if(keep.length!==pending.length){pending=keep;remember()}
+   return {ready,blocked};
+ }
+ // Every shot waiting on this device travels in one request, so a full gym tapping at once stays far below the shared write budget.
  async function flush(){
    if(busy||!pending.length||!drills.size||!roster.size)return;
-   busy=true;
-   try{let index=0,blocked='';
-    while(index<pending.length){const id=pending[index],s=state.shooting.find(x=>x.id===id);
-      if(!s){pending.splice(index,1);remember();continue}
-      if(!roster.has(s.playerId)){blocked='This athlete is not yet in the shared roster. Coach must add them to Supabase.';index++;continue}
-      const drill=drills.get(String(s.type||'').toLowerCase());
-      if(!drill){blocked=String(s.type||'This drill')+' needs database setup before it can sync. The shot is saved on this device.';index++;continue}
-      const customLabel=/^custom drill$/i.test(String(s.type||''))&&s.drill&&s.drill!=='Athlete Quick Entry'?String(s.drill):'';
-      try{await request('shot','POST',{id:s.id,player_id:s.playerId,drill_id:drill,made:Number(s.makes)===1,practice_date:s.date,recorded_at:s.recordedAt,owner_token:ownerToken(s.id),...(customLabel?{label:customLabel}:{})})}
-      catch(e){if(!isClientError(e))throw e;reject(s.id,e.message);pending.splice(index,1);remember();label('A shot was rejected by the shared database: '+e.message,true);continue}
-      cloudShots.set(s.id,{made:Number(s.makes)===1});pending.splice(index,1);remember();label('Shot saved to the shared team database');
+   busy=true;clearTimeout(shotRetryTimer);let retry=false;
+   try{
+    const {ready,blocked}=readyShots();
+    for(let start=0;start<ready.length;start+=MAX_BATCH){
+      const batch=ready.slice(start,start+MAX_BATCH),ids=new Set(batch.map(s=>s.id));
+      const {saved,refused,done}=settleBatch(await request('shots','POST',{shots:batch}),ids);
+      for(const s of batch)if(saved.has(s.id))cloudShots.set(s.id,{made:s.made});
+      pending=pending.filter(id=>!done.has(id));remember();shotRetryDelay=RETRY_BASE_MS;
+      batchLabel(batch.length===1?'shot':'shots',refused);
     }
     if(blocked)label(blocked,true);
-   }catch(e){label('Shot saved on this device. Cloud retry pending: '+e.message,true)}finally{busy=false}}
+    if(readyShots().ready.length)retry=true;
+   }catch(e){retry=true;label('Shot saved on this device. Cloud retry pending: '+e.message,true)}
+   finally{busy=false;if(retry&&pending.length){shotRetryTimer=setTimeout(flush,shotRetryDelay);shotRetryDelay=Math.min(RETRY_MAX_MS,shotRetryDelay*2)}}
+ }
  const validSituationShot=shot=>uuid.test(shot.id)&&uuid.test(shot.playerId)&&/^\d{4}-\d{2}-\d{2}$/.test(shot.date||'')&&(/^(TWO|THREE|FT)_[MX]$/.test(shot.type||'')||['REB','DRB','ORB','TO'].includes(shot.type))&&Number.isInteger(shot.x)&&shot.x>=12&&shot.x<=488&&Number.isInteger(shot.y)&&shot.y>=12&&shot.y<=458&&Number.isFinite(Date.parse(shot.recordedAt));
  const legacySituationShot=(event,session)=>({id:event.id,playerId:event.playerId,date:session.date,type:event.type,x:event.x,y:event.y,recordedAt:event.recordedAt||session.createdAt||(session.date?session.date+'T12:00:00Z':''),undone:false});
  async function syncGameSituationShots(){
@@ -152,6 +178,7 @@
  const mergeById=(local,shared,pick=(a,b)=>b)=>{const merged=new Map(local.filter(x=>x?.id).map(x=>[x.id,x]));for(const item of shared)if(item?.id)merged.set(item.id,merged.has(item.id)?pick(merged.get(item.id),item):item);return [...merged.values()]};
  window.ptCloudMergeGames=(local,shared)=>mergeById(local,shared,pickGame);
  async function load(){
+  lastLoadAt=Date.now();
   const selectedId=playerPage?(document.getElementById('profilePlayer')?.value||state.players[0]?.id||''):'';
   const currentScope=playerPage&&!uuid.test(selectedId)?'entry':scope();
   try{const data=await request('snapshot','GET',null,'','&scope='+currentScope+(currentScope==='player'?'&player_id='+encodeURIComponent(selectedId):''));let addedPlayers=0,addedShots=0,addedResults=0,changedShots=0;
@@ -279,5 +306,6 @@
  // Shots removed on this device are removed from the cloud too. Without a coach code the server only honours recent entries (athlete Undo).
  async function removeShot(id){const code=credential();if(!code&&!ownerTokens[id]){cloudShots.delete(id);label('That shot was recorded on another device, so it stays in the shared database. A coach can remove it in Coach Review.',true);return}try{await request('shot','DELETE',{id,...(code?{}:{owner_token:ownerTokens[id]})},code);cloudShots.delete(id);forgetToken(id);label('Shot removed from the shared team database')}catch(e){if(isClientError(e)){cloudShots.delete(id);label('Shot stays in the shared database: '+e.message+' Ask a coach to remove it in Coach Review.',true)}else label('Shot removal not synchronized: '+e.message,true)}}
  if(playerPage)document.getElementById('profilePlayer')?.addEventListener('change',()=>load());
- load();setInterval(()=>{if(document.visibilityState==='visible'){noticeChanges();load()}},60000);document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'){noticeChanges();load()}});
+ load();setInterval(()=>{if(document.visibilityState==='visible'){noticeChanges();load()}},60000);
+ document.addEventListener('visibilitychange',()=>{if(document.visibilityState!=='visible')return;noticeChanges();if(Date.now()-lastLoadAt>=REFRESH_MIN_GAP_MS)load()});
 })();

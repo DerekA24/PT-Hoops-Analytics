@@ -9,14 +9,14 @@ const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 const id = n => `${String(n).padStart(8, '0')}-0000-4000-8000-000000000000`;
 const PLAYER = id(1), DRILL = id(2);
 
-function boot({page = 'shooting-drills.html', state, snapshot = {}, respond = () => ({ok:true, body:{ok:true}})}) {
+function boot({page = 'shooting-drills.html', state, snapshot = {}, respond = () => ({ok:true, body:{ok:true}}), values = new Map()}) {
   const calls = [];
-  const values = new Map();
+  const listeners = {};
   const context = {
     state,
     location: {pathname: '/' + page},
     window: {addEventListener(){}},
-    document: {createElement: () => ({classList:{toggle(){}}, setAttribute(){}}), querySelector: () => null, getElementById: () => null, addEventListener(){}, visibilityState: 'visible'},
+    document: {createElement: () => ({classList:{toggle(){}}, setAttribute(){}}), querySelector: () => null, getElementById: () => null, addEventListener(type, fn){(listeners[type] ||= []).push(fn)}, visibilityState: 'visible'},
     localStorage: {getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, String(value))},
     fetch: async (url, options) => {
       const call = {url, method: options.method, headers: options.headers, body: options.body && JSON.parse(options.body)};
@@ -29,32 +29,35 @@ function boot({page = 'shooting-drills.html', state, snapshot = {}, respond = ()
     save: () => { context.saves = (context.saves || 0) + 1; },
   };
   vm.runInNewContext(cloud, context);
-  return {context, calls, values};
+  return {context, calls, values, listeners};
 }
 
 const shot = (n, extra = {}) => ({id: id(n), playerId: PLAYER, type: 'Free Throws', date: '2026-11-10', makes: 1, attempts: 1, recordedAt: '2026-11-10T12:00:00.000Z', ...extra});
 const roster = {players: [{id: PLAYER, full_name: 'Test Player', jersey_number: 4, grade: '', position: ''}], drills: [{id: DRILL, name: 'Free Throws'}]};
-const posts = calls => calls.filter(c => c.method === 'POST' && c.url.includes('action=shot'));
+const posts = calls => calls.filter(c => c.method === 'POST' && c.url.includes('action=shots'));
+const batchIds = calls => posts(calls).flatMap(c => c.body.shots.map(s => s.id));
+const accept = call => ({ok:true, body:{ok:true, saved: call.body.shots.map(s => s.id), rejected: []}});
 
 test('a shot with an unregistered drill does not block the shots behind it', async () => {
   const state = {players: [], games: [], shooting: [], court: [], schedule: [], drillResults: [], gameSituations: [], gameSituationShots: []};
-  const {context, calls, values} = boot({state, snapshot: roster});
+  const {context, calls, values} = boot({state, snapshot: roster, respond: accept});
   await wait(30);
   state.shooting.push(shot(10, {type: 'Mystery Drill'}), shot(11));
   context.window.ptCloudQueueSave();
   await wait(150);
-  assert.deepEqual(posts(calls).map(c => c.body.id), [id(11)]);
+  assert.deepEqual(batchIds(calls), [id(11)]);
   assert.deepEqual(JSON.parse(values.get('pt_hub_pending_v1')), [id(10)]);
 });
 
 test('a shot the server rejects is set aside instead of retried forever', async () => {
   const state = {players: [], games: [], shooting: [], court: [], schedule: [], drillResults: [], gameSituations: [], gameSituationShots: []};
-  const {context, calls, values} = boot({state, snapshot: roster, respond: call => call.body.id === id(20) ? {ok:false, status:403, body:{error:'Unknown player or drill'}} : {ok:true, body:{ok:true}}});
+  const {context, calls, values} = boot({state, snapshot: roster, respond: () => ({ok:true, body:{ok:true, saved:[id(21)], rejected:[{id: id(20), error:'Unknown player or drill'}]}})});
   await wait(30);
   state.shooting.push(shot(20), shot(21));
   context.window.ptCloudQueueSave();
   await wait(150);
-  assert.deepEqual(posts(calls).map(c => c.body.id), [id(20), id(21)]);
+  assert.equal(posts(calls).length, 1, 'both shots travel in one request');
+  assert.deepEqual(batchIds(calls), [id(20), id(21)]);
   assert.deepEqual(JSON.parse(values.get('pt_hub_pending_v1')), []);
   assert.equal(JSON.parse(values.get('pt_hub_rejected_v1'))[0].id, id(20));
   assert.equal(context.window.ptCloudStatus().rejected, 1);
@@ -63,7 +66,7 @@ test('a shot the server rejects is set aside instead of retried forever', async 
 test('a backup import does not delete shared shots, and resync forgets vanished ids', async () => {
   const cloudShots = Array.from({length: 12}, (_, i) => ({id: id(100 + i), player_id: PLAYER, drill_id: DRILL, made: true, practice_date: '2026-11-10', created_at: '2026-11-10T12:00:00.000Z', notes: null}));
   const state = {players: [], games: [], shooting: [], court: [], schedule: [], drillResults: [], gameSituations: [], gameSituationShots: []};
-  const {context, calls} = boot({page: 'leaderboards.html', state, snapshot: {...roster, scope: 'full', shots: cloudShots}});
+  const {context, calls} = boot({page: 'leaderboards.html', state, snapshot: {...roster, scope: 'full', shots: cloudShots}, respond: accept});
   await wait(30);
   assert.equal(state.shooting.length, 12);
   state.shooting = [];
@@ -82,14 +85,14 @@ test('a backup import does not delete shared shots, and resync forgets vanished 
   state.shooting.push(shot(200));
   context.window.ptCloudQueueSave();
   await wait(150);
-  const upload = posts(calls).find(c => c.body.id === id(200));
-  assert.match(upload.body.owner_token, /^[0-9a-f]{48}$/);
+  const upload = posts(calls).flatMap(c => c.body.shots).find(s => s.id === id(200));
+  assert.match(upload.owner_token, /^[0-9a-f]{48}$/);
   state.shooting = state.shooting.filter(s => s.id !== id(200));
   context.window.ptCloudQueueSave();
   await wait(150);
   const removal = calls.find(c => c.method === 'DELETE');
   assert.ok(removal, 'a shot this device uploaded is removed when undone');
-  assert.equal(removal.body.owner_token, upload.body.owner_token);
+  assert.equal(removal.body.owner_token, upload.owner_token);
   assert.equal(removal.headers['X-Coach-Access-Code'], undefined);
 });
 
@@ -126,4 +129,106 @@ test('schedule and roster pushes wait until the shared schedule has been read', 
   context.window.ptCloudQueueSave();
   await wait(150);
   assert.equal(calls.filter(c => c.url.includes('action=schedule_sync')).length, 0);
+});
+
+test('shots recorded in a burst go up as one request, not one per tap', async () => {
+  const state = {players: [], games: [], shooting: [], court: [], schedule: [], drillResults: [], gameSituations: [], gameSituationShots: []};
+  const {context, calls, values} = boot({state, snapshot: roster, respond: accept});
+  await wait(30);
+  for (let n = 40; n < 52; n++) state.shooting.push(shot(n));
+  context.window.ptCloudQueueSave();
+  await wait(150);
+  assert.equal(posts(calls).length, 1);
+  assert.equal(posts(calls)[0].body.shots.length, 12);
+  assert.deepEqual(JSON.parse(values.get('pt_hub_pending_v1')), []);
+  for (let n = 40; n < 52; n++) assert.ok(context.window.ptCloudHasShot(id(n)));
+});
+
+test('a rate-limited batch stays pending and is retried with backoff', async () => {
+  const state = {players: [], games: [], shooting: [], court: [], schedule: [], drillResults: [], gameSituations: [], gameSituationShots: []};
+  let attempts = 0;
+  const {context, calls, values} = boot({state, snapshot: roster, respond: call => ++attempts === 1 ? {ok:false, status:429, body:{error:'Rate limit reached'}} : accept(call)});
+  await wait(30);
+  state.shooting.push(shot(60), shot(61));
+  context.window.ptCloudQueueSave();
+  await wait(150);
+  assert.equal(posts(calls).length, 1);
+  assert.deepEqual(JSON.parse(values.get('pt_hub_pending_v1')), [id(60), id(61)], 'a 429 keeps the shots queued');
+  assert.equal(JSON.parse(values.get('pt_hub_rejected_v1') || '[]').length, 0, 'a 429 is never a rejection');
+  await wait(1200);
+  assert.equal(posts(calls).length, 2, 'the batch is retried without another tap');
+  assert.deepEqual(JSON.parse(values.get('pt_hub_pending_v1')), []);
+});
+
+test('every request carries one stable device id that survives a reload', async () => {
+  const state = {players: [], games: [], shooting: [], court: [], schedule: [], drillResults: [], gameSituations: [], gameSituationShots: []};
+  const first = boot({state, snapshot: roster, respond: accept});
+  await wait(30);
+  state.shooting.push(shot(70));
+  first.context.window.ptCloudQueueSave();
+  await wait(150);
+  const ids = new Set(first.calls.map(c => c.headers['X-PT-Device']));
+  assert.equal(ids.size, 1);
+  const device = [...ids][0];
+  assert.match(device, /^[0-9a-f]{32}$/);
+  assert.equal(first.values.get('pt_hub_device_v1'), device);
+  const second = boot({state: {...state, shooting: []}, snapshot: roster, values: first.values});
+  await wait(30);
+  assert.equal(second.calls.at(-1).headers['X-PT-Device'], device);
+});
+
+test('drill results upload as one batch and rejected rows are set aside', async () => {
+  const results = [1, 2, 3].map(n => ({id: id(80 + n), batchId: id(80), playerId: PLAYER, date: '2026-11-10', result: n === 2 ? 'loss' : 'win', recordedAt: '2026-11-10T12:00:00.000Z'}));
+  const state = {players: [], games: [], shooting: [], court: [], schedule: [], drillResults: results, gameSituations: [], gameSituationShots: []};
+  const {context, calls, values} = boot({state, snapshot: roster, respond: call => ({ok:true, body:{ok:true, saved:[id(81), id(83)], rejected:[{id: id(82), error:'Unknown player'}]}})});
+  await wait(30);
+  context.window.ptCloudQueueSave();
+  await wait(150);
+  const batches = calls.filter(c => c.url.includes('action=drill_results'));
+  assert.equal(batches.length, 1);
+  assert.deepEqual(batches[0].body.results.map(r => r.id), [id(81), id(82), id(83)]);
+  assert.deepEqual(JSON.parse(values.get('pt_hub_pending_drill_results_v1')), []);
+  assert.equal(JSON.parse(values.get('pt_hub_rejected_v1'))[0].id, id(82));
+  assert.equal(calls.filter(c => c.url.includes('action=drill_result&')).length, 0, 'no per-row requests');
+});
+
+test('a screen wake right after a refresh does not fetch the snapshot again', async () => {
+  const state = {players: [], games: [], shooting: [], court: [], schedule: [], drillResults: [], gameSituations: [], gameSituationShots: []};
+  const {calls, listeners} = boot({state, snapshot: roster});
+  await wait(30);
+  const gets = () => calls.filter(c => c.method === 'GET').length;
+  assert.equal(gets(), 1);
+  for (const fn of listeners.visibilitychange || []) fn();
+  for (const fn of listeners.visibilitychange || []) fn();
+  await wait(30);
+  assert.equal(gets(), 1, 'unlocking a phone seconds after a refresh must not cost another snapshot');
+});
+
+test('a failure of the whole batch request keeps every shot queued', async () => {
+  const state = {players: [], games: [], shooting: [], court: [], schedule: [], drillResults: [], gameSituations: [], gameSituationShots: []};
+  let attempts = 0;
+  const {context, calls, values} = boot({state, snapshot: roster, respond: call => ++attempts === 1 ? {ok:false, status:404, body:{error:'Unknown operation'}} : accept(call)});
+  await wait(30);
+  state.shooting.push(shot(90), shot(91));
+  context.window.ptCloudQueueSave();
+  await wait(150);
+  assert.deepEqual(JSON.parse(values.get('pt_hub_pending_v1')), [id(90), id(91)], 'an old function answering 404 must not discard the queue');
+  assert.equal(JSON.parse(values.get('pt_hub_rejected_v1') || '[]').length, 0);
+  await wait(1200);
+  assert.deepEqual(JSON.parse(values.get('pt_hub_pending_v1')), []);
+  assert.equal(posts(calls).length, 2);
+});
+
+test('a partial batch reply leaves the rest queued and retries without a tap', async () => {
+  const state = {players: [], games: [], shooting: [], court: [], schedule: [], drillResults: [], gameSituations: [], gameSituationShots: []};
+  let attempts = 0;
+  const {context, calls, values} = boot({state, snapshot: roster, respond: call => ++attempts === 1 ? {ok:true, body:{ok:true, saved:[id(95)], rejected:[]}} : accept(call)});
+  await wait(30);
+  state.shooting.push(shot(95), shot(96));
+  context.window.ptCloudQueueSave();
+  await wait(150);
+  assert.deepEqual(JSON.parse(values.get('pt_hub_pending_v1')), [id(96)]);
+  await wait(1200);
+  assert.deepEqual(JSON.parse(values.get('pt_hub_pending_v1')), []);
+  assert.deepEqual(batchIds(calls).slice(-1), [id(96)]);
 });
