@@ -209,13 +209,28 @@ function renderLeaderboards(){if(!$('leaderboards'))return;
  const dest=$('lbChampions');if(dest)dest.innerHTML=`<div class="drill-wins-heading"><div class="lb-feature-title">DAILY SHOOTING CHAMPIONS</div>${leaderboardToggle('shooting:champions',winners.length,'Daily Shooting Champions')}</div><p class="muted">One win for finishing first in shooting percentage in a drill on a practice date with at least 20 attempts. Ties share a win. Counts recalculate after coach corrections.</p>`+(winners.length?table(['Rank','Athlete','Daily Shooting Wins'],leaderboardRows('shooting:champions',winners).map((x,i)=>`<tr><td>${i+1}</td><td>${esc(playerName(x.id))}</td><td><strong>${x.count}</strong></td></tr>`)):'<p class="muted">Daily champions appear when athletes record at least 20 attempts in a drill on the same date.</p>');
 }
 function coachRows(){const p=$('coachPlayer').value,t=$('coachCategory').value,q=String($('coachPlayerSearch')?.value||'').trim().toLowerCase();return state.shooting.filter(x=>(!p||x.playerId===p)&&(!q||playerName(x.playerId).toLowerCase().includes(q)||String(state.players.find(player=>player.id===x.playerId)?.number??'').toLowerCase()===q.replace(/^#/,''))&&dateInRange(x.date,'coach')&&(!t||x.type===t)).slice().sort((a,b)=>String(b.recordedAt||b.date).localeCompare(String(a.recordedAt||a.date)))}
+const coachExpandedGroups=new Set();
+function coachGroups(){return window.PTCoachSubmissions.group(coachRows())}
 function practiceTimestamp(record){
  const raw=record.recordedAt||record.created_at;
  if(!raw||!Number.isFinite(Date.parse(raw)))return '<span class="muted">Not recorded</span>';
  const date=new Date(raw),label=date.toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit',hour12:true});
  return `<time datetime="${esc(date.toISOString())}" title="${esc(date.toISOString())}">${esc(label)}</time>`;
 }
-function renderCoachReview(){if(!$('coach'))return;dateRangeValid('coach');const recovery=$('coachRecovery');if(recovery)recovery.style.display=state.players.length?'none':'block';const old=$('coachPlayer').value;refreshOptions('coachPlayer');if(old&&state.players.some(x=>x.id===old))$('coachPlayer').value=old;syncFilterSelect('coachCategory',getDrillTypes());const rows=coachRows();$('coachEntries').innerHTML='<h3>Individual Submissions ('+rows.length+')</h3><p class="muted">Select a submission and enter the correct Made and Missed totals. Use Delete to remove an individual make, miss, or entire submission. Athlete, date, and drill remain unchanged when editing. Corrections and deletions appear in Correction History.</p>'+(rows.length?table(['Date','Recorded At','Athlete','Drill','Detail','Makes','Misses','Attempts','Actions'],rows.map(x=>`<tr><td>${esc(x.date)}</td><td>${practiceTimestamp(x)}</td><td>${esc(playerName(x.playerId))}</td><td>${esc(x.type)}</td><td>${esc(x.drill||'')}</td><td>${Number(x.makes)||0}</td><td>${Math.max(0,(Number(x.attempts)||0)-(Number(x.makes)||0))}</td><td>${Number(x.attempts)||0}</td><td><button data-coach-edit="${esc(x.id)}">Edit</button> <button data-coach-delete="${esc(x.id)}">Delete</button></td></tr>`)):'<p class="muted">No shooting submissions match these filters. Select Clear Filters to see all records. If this is a new HTML file, use Backup to import your JSON data first.</p>');
+function coachGroupTime(group){
+ const dated=group.records.filter(record=>Number.isFinite(Date.parse(record.recordedAt||record.created_at))).sort((a,b)=>Date.parse(a.recordedAt||a.created_at)-Date.parse(b.recordedAt||b.created_at));
+ if(!dated.length)return '<span class="muted">Not recorded</span>';
+ const first=dated[0],last=dated.at(-1),time=record=>new Date(record.recordedAt||record.created_at).toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit',hour12:true});
+ return practiceTimestamp(first)+(time(first)===time(last)?'':' – '+practiceTimestamp(last));
+}
+function coachGroupRow(group){
+ const expanded=coachExpandedGroups.has(group.key),key=esc(group.key);
+ const summary=`<tr><td>${esc(group.date)}</td><td>${coachGroupTime(group)}</td><td>${esc(playerName(group.playerId))}</td><td>${esc(group.type)}</td><td>${esc(group.drill)}</td><td>${group.makes}</td><td>${group.attempts-group.makes}</td><td>${group.attempts}</td><td><button data-coach-edit-group="${key}">Edit Totals</button> <button data-coach-toggle-group="${key}" aria-expanded="${expanded}">${expanded?'Hide Shots':'Show Shots'}</button></td></tr>`;
+ if(!expanded)return summary;
+ const shots=table(['Recorded At','Makes','Misses','Attempts','Actions'],group.records.map(x=>`<tr><td>${practiceTimestamp(x)}</td><td>${Number(x.makes)||0}</td><td>${Math.max(0,(Number(x.attempts)||0)-(Number(x.makes)||0))}</td><td>${Number(x.attempts)||0}</td><td><button data-coach-edit="${esc(x.id)}">Edit</button> <button data-coach-delete="${esc(x.id)}">Delete</button></td></tr>`));
+ return summary+`<tr><td colspan="9"><div class="coach-group-shots"><strong>${group.records.length} saved ${group.records.length===1?'record':'records'}</strong>${shots}</div></td></tr>`;
+}
+function renderCoachReview(){if(!$('coach'))return;dateRangeValid('coach');const recovery=$('coachRecovery');if(recovery)recovery.style.display=state.players.length?'none':'block';const old=$('coachPlayer').value;refreshOptions('coachPlayer');if(old&&state.players.some(x=>x.id===old))$('coachPlayer').value=old;syncFilterSelect('coachCategory',getDrillTypes());const rows=coachRows(),groups=window.PTCoachSubmissions.group(rows);$('coachEntries').innerHTML='<h3>Individual Submissions ('+groups.length+' groups · '+rows.length+' records)</h3><p class="muted">Shots from the same athlete, date, shot type, and drill are combined. Edit Totals changes the group. Show Shots opens its individual records for a single-shot edit or deletion. Corrections and deletions appear in Correction History.</p>'+(groups.length?table(['Date','Recorded At','Athlete','Drill','Detail','Makes','Misses','Attempts','Actions'],groups.map(coachGroupRow)):'<p class="muted">No shooting submissions match these filters. Select Clear Filters to see all records. If this is a new HTML file, use Backup to import your JSON data first.</p>');
  $('coachAudit').innerHTML=state.corrections.length?table(['When','Action','Athlete','Reason','Before','After'],state.corrections.slice().reverse().slice(0,75).map(x=>`<tr><td>${esc(x.at)}</td><td>${esc(x.action)}</td><td>${esc(x.player)}</td><td>${esc(x.reason)}</td><td>${esc(x.before)}</td><td>${esc(x.after)}</td></tr>`)):'<p class="muted">No corrections recorded.</p>';
 }
 function describeShot(x){return x?`${x.date} | ${x.type} | ${x.drill||''} | ${x.makes}/${x.attempts}`:'Deleted'}
@@ -272,6 +287,65 @@ function coachEdit(id,remove){
  });
  document.body.appendChild(overlay);overlay.querySelector('#coachCountMade').focus();
 }
+function coachEditGroup(key){
+ if(!window.PTCoachAccess?.isUnlocked()){toast('Enter the coach access code to change submissions.');$('coachUnlock')?.click();return}
+ const group=coachGroups().find(item=>item.key===key);if(!group)return;
+ document.getElementById('coachCountEditor')?.remove();
+ const overlay=document.createElement('div');overlay.id='coachCountEditor';
+ overlay.style.cssText='position:fixed;inset:0;background:#000c;z-index:999;display:grid;place-items:center;padding:16px';
+ overlay.innerHTML=`<div role="dialog" aria-modal="true" aria-labelledby="coachCountTitle" style="width:min(460px,100%);padding:22px;border:1px solid #64748b;border-radius:16px;background:#1a2230;color:white;max-height:90vh;overflow:auto">
+  <h2 id="coachCountTitle" style="margin:0 0 10px">Edit Group Totals</h2>
+  <p class="muted">${esc(playerName(group.playerId))} · ${esc(group.type)} · ${esc(group.date)}${group.drill?' · '+esc(group.drill):''}</p>
+  <p class="muted">${group.records.length} saved records. Changes to the attempt count add or remove individual shots.</p>
+  <form id="coachCountForm"><div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:16px 0">
+   <label>Made<input id="coachCountMade" type="number" inputmode="numeric" min="0" step="1" required value="${group.makes}" style="width:100%;font-size:22px"></label>
+   <label>Missed<input id="coachCountMissed" type="number" inputmode="numeric" min="0" step="1" required value="${group.attempts-group.makes}" style="width:100%;font-size:22px"></label>
+  </div><p id="coachCountError" role="alert" style="color:#ffb5b5;min-height:20px"></p>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px"><button type="button" id="coachCountCancel">Cancel</button><button type="submit" class="primary">Save Correction</button></div></form></div>`;
+ const close=()=>overlay.remove(),error=message=>overlay.querySelector('#coachCountError').textContent=message;
+ overlay.querySelector('#coachCountCancel').onclick=close;
+ overlay.addEventListener('click',e=>{if(e.target===overlay)close()});
+ overlay.addEventListener('keydown',e=>{if(e.key==='Escape')close()});
+ overlay.querySelector('#coachCountForm').addEventListener('submit',async e=>{
+  e.preventDefault();
+  const madeText=overlay.querySelector('#coachCountMade').value,missedText=overlay.querySelector('#coachCountMissed').value;
+  if(!/^\d+$/.test(madeText)||!/^\d+$/.test(missedText)){error('Enter whole numbers for Made and Missed.');return}
+  const made=Number(madeText),missed=Number(missedText);
+  let plan;try{plan=window.PTCoachSubmissions.plan(group.records,made,missed)}catch(err){error(err.message);return}
+  if(plan.added>MAX_QUICK_ENTRY_SHOTS){error('Add at most '+MAX_QUICK_ENTRY_SHOTS+' attempts in one correction.');return}
+  const current=coachGroups().find(item=>item.key===key);
+  if(!current||current.records.length!==group.records.length||current.attempts!==group.attempts||current.makes!==group.makes){error('These records changed. Close and reopen the group before editing.');return}
+  if(made===group.makes&&made+missed===group.attempts){close();toast('No changes needed');return}
+  const shared=record=>!!(window.ptCloudHasShot?.(record.id)||record.source==='supabase');
+  if(plan.keep.some(item=>item.attempts!==Number(item.record.attempts)&&shared(item.record))){error('A shared multi-shot record needs an individual correction. Open Show Shots and edit that record.');return}
+  if(plan.remove.some(shared)&&typeof window.ptCoachDeleteShot!=='function'){error('Cloud deletion is unavailable. No shots were changed.');return}
+  const submit=overlay.querySelector('button[type="submit"]');submit.disabled=true;error('Saving correction…');
+  const beforeRecords=group.records.map(record=>({...record})),removed=[];
+  try{
+   for(const record of plan.remove){
+    if(shared(record))await window.ptCoachDeleteShot(record.id);
+    state.shooting=state.shooting.filter(shot=>shot.id!==record.id);
+    removed.push(record);
+    persist();
+   }
+  }catch(err){
+   if(removed.length){
+    state.corrections.push({id:uid(),at:new Date().toISOString(),action:'Partial group correction',player:playerName(group.playerId),playerId:group.playerId,recordId:group.records[0].id,reason:'Cloud deletion stopped after some shots were removed',before:`${group.makes}/${group.attempts}`,after:`${removed.length} records removed; remaining shots unchanged`,beforeRecords,removedRecords:removed});
+    save();close();alert('Some shots were removed before the cloud stopped this correction. The remaining shots were kept. Review the group and try again. '+err.message);
+   }else{error('No shots were changed. '+err.message);submit.disabled=false}
+   return;
+  }
+  for(const item of plan.keep){
+   const record=state.shooting.find(shot=>shot.id===item.record.id);if(!record)continue;
+   if(Number(record.makes)!==item.makes||Number(record.attempts)!==item.attempts){record.makes=item.makes;record.attempts=item.attempts;record.dirty=true}
+  }
+  const template=plan.keep.at(-1)?.record||group.records[0],recordedAt=Date.now();
+  for(let index=0;index<plan.added;index++)state.shooting.push({...template,id:uid(),makes:index<plan.addedMakes?1:0,attempts:1,recordedAt:new Date(recordedAt+index).toISOString(),source:'coach-correction',dirty:undefined});
+  state.corrections.push({id:uid(),at:new Date().toISOString(),action:'Edit grouped shot totals',player:playerName(group.playerId),playerId:group.playerId,recordId:group.records[0].id,recordIds:group.records.map(record=>record.id),reason:'Coach corrected made and missed totals',before:`${group.makes}/${group.attempts}`,after:`${made}/${made+missed}`,beforeRecords});
+  save();close();toast('Group correction saved on this device; shared shots are syncing');
+ });
+ document.body.appendChild(overlay);overlay.querySelector('#coachCountMade').focus();
+}
 if($('boardManageRows')){$('boardManageRows').addEventListener('click',e=>{
  const toggle=e.target.closest('[data-board-toggle]'),remove=e.target.closest('[data-board-remove]');
  if(toggle)setBoardVisibility(toggle.dataset.boardToggle,!isBoardHidden(toggle.dataset.boardToggle));
@@ -280,7 +354,7 @@ if($('boardManageRows')){$('boardManageRows').addEventListener('click',e=>{
  }
 });}
 if($('boardRestoreAll')){$('boardRestoreAll').addEventListener('click',()=>{if(!state.hiddenBoards.length){toast('All boards already visible');return}state.hiddenBoards=[];save();toast('All boards restored')});}
-if($('coachEntries')){$('coachEntries').addEventListener('click',e=>{const edit=e.target.closest('[data-coach-edit]'),del=e.target.closest('[data-coach-delete]');if(edit)coachEdit(edit.dataset.coachEdit,false);if(del)coachEdit(del.dataset.coachDelete,true)});}
+if($('coachEntries')){$('coachEntries').addEventListener('click',e=>{const groupEdit=e.target.closest('[data-coach-edit-group]'),toggle=e.target.closest('[data-coach-toggle-group]'),edit=e.target.closest('[data-coach-edit]'),del=e.target.closest('[data-coach-delete]');if(groupEdit)coachEditGroup(groupEdit.dataset.coachEditGroup);else if(toggle){const key=toggle.dataset.coachToggleGroup;if(coachExpandedGroups.has(key))coachExpandedGroups.delete(key);else coachExpandedGroups.add(key);renderCoachReview()}else if(edit)coachEdit(edit.dataset.coachEdit,false);else if(del)coachEdit(del.dataset.coachDelete,true)});}
 $('coachPlayerSearch')?.addEventListener('input',renderCoachReview);
 for(const id of ['coachPlayer','coachStartDate','coachEndDate','coachCategory'])$(id)?.addEventListener('change',renderCoachReview);
 if($('coachClear')&&$('coachPlayer')&&$('coachStartDate')&&$('coachCategory')){$('coachClear').onclick=()=>{if($('coachPlayerSearch'))$('coachPlayerSearch').value='';$('coachPlayer').value='';$('coachStartDate').value='';$('coachEndDate').value='';$('coachCategory').value='';renderCoachReview()};}

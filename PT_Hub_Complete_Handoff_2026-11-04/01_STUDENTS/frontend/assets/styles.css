@@ -36,6 +36,7 @@ header .brand-wrap{display:flex;align-items:center;gap:16px}.brand-logo{width:68
 #coachEntries td:last-child{white-space:nowrap}
 #coachEntries .scroll{max-height:560px;overflow:auto}
 #coachEntries th{position:sticky;top:0;z-index:1}
+.coach-group-shots{padding:12px;background:#111924;border:1px solid #354153;border-radius:10px}.coach-group-shots .scroll{margin-top:8px;max-height:280px!important}.coach-group-shots table{min-width:520px!important}
 @media(max-width:1100px){#coach .row:has(#coachPlayer){grid-template-columns:repeat(3,minmax(0,1fr))}#coach .row:has(#coachPlayer)>button{width:100%}}
 @media(max-width:650px){#coach .row:has(#coachPlayer){grid-template-columns:1fr 1fr}#coach .row:has(#coachPlayer)>label:first-child{grid-column:1/-1}#coach .row:has(#coachPlayer)>button{width:100%}}
 
@@ -389,7 +390,7 @@ main>section>h2:first-child,#coach>h2:first-child{margin-top:0!important}
 .profile-data{padding:14px!important}.profile-data h3{font-size:16px;margin:0 0 10px}
 .profile-compact-stats{display:flex;gap:28px;margin:8px 0 14px}.profile-compact-stats span{display:flex;align-items:baseline;gap:8px}.profile-compact-stats small{font-size:11px}.profile-compact-stats strong{font-size:20px}
 .profile-data table{min-width:0!important}.profile-data th,.profile-data td{padding:6px 8px;font-size:12px}
-.profile-data details{margin-top:12px}.profile-data details p{font-size:12px}.profile-data .scroll{max-height:260px;overflow:auto}
+.profile-data .scroll{max-height:none;overflow:visible}.profile-data .scroll table{min-width:0!important}
 .profile-data button{font-size:11px;padding:4px 8px;min-height:30px}
 @media(max-width:760px){.profile-heading{gap:8px}.profile-heading label{width:100%}.profile-chart-heading{gap:10px}.shot-source-toggle{width:100%}.shot-source-toggle button{flex:1}.profile-compact-stats{gap:16px;flex-wrap:wrap}.profile-compact-stats span{gap:5px}.profile-compact-stats strong{font-size:18px}}
 .team-trend-controls{display:flex;gap:12px;flex-wrap:wrap}.team-trend-controls label{min-width:160px}
@@ -709,4 +710,8 @@ body[data-entry-mode="game-situation"] #livePlayerSlots .live-slot-dropdown sele
  body[data-entry-mode="game-situation"] .live-last-entry{min-height:26px;margin-top:6px}
  body[data-entry-mode="game-situation"] .live-last-entry p{font-size:10px}
  body[data-entry-mode="game-situation"] #liveUndo{min-height:28px;min-width:50px;padding:4px 6px;font-size:10px}
+}
+@media (hover:hover) and (pointer:fine){
+ #athlete .athlete-select>p.muted:first-of-type,
+ #athlete .athlete-select>.recent-athletes{display:none!important}
 }
