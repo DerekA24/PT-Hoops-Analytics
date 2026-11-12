@@ -182,12 +182,22 @@ function profileRecords({allDates=profileAllDates,source=profileSource,player=pr
 }
 const profileHeatColors=['#dc2626','#f97316','#facc15','#a3e635','#16a34a'];
 const profileHeatThresholds={rim:[45,50,60,65],floaters:[30,35,45,50],midCornerLeft:[30,35,45,50],midCornerRight:[30,35,45,50],midWingLeft:[25,30,40,45],midWingRight:[25,30,40,45],midKey:[25,30,40,45],cornerLeft:[20,25,35,40],cornerRight:[20,25,35,40],wingLeft:[20,25,35,40],wingRight:[20,25,35,40],slotLeft:[20,25,35,40],slotRight:[20,25,35,40],top:[20,25,35,40],free:[50,60,70,80]};
+const profilePracticeHeatThresholds={rim:[65,70,80,85],floaters:[40,45,55,60],midCornerLeft:[40,45,55,60],midCornerRight:[40,45,55,60],midWingLeft:[35,40,50,55],midWingRight:[35,40,50,55],midKey:[35,40,50,55],cornerLeft:[30,35,45,50],cornerRight:[30,35,45,50],wingLeft:[30,35,45,50],wingRight:[30,35,45,50],slotLeft:[30,35,45,50],slotRight:[30,35,45,50],top:[30,35,45,50],free:[55,65,75,85]};
+const profileHeatStandardsZones=[['Finishing','rim'],['Floaters','floaters'],['Midrange Corner','midCornerLeft'],['Midrange Wing','midWingLeft'],['Midrange Key','midKey'],['Corner 3','cornerLeft'],['Wing 3','wingLeft'],['Slot 3','slotLeft'],['Top of Key 3','top'],['Free Throws','free']];
+function profileCurrentHeatThresholds(){return profileSource==='practice'?profilePracticeHeatThresholds:profileHeatThresholds}
 function profileColor(makes,attempts,zone){
  if(!attempts)return '#25313d';
- const thresholds=profileHeatThresholds[zone];if(!thresholds)return '#25313d';
+ const thresholds=profileCurrentHeatThresholds()[zone];if(!thresholds)return '#25313d';
  // Compare unrounded percentages so values below a cutoff stay in their band.
  const band=thresholds.filter(cutoff=>100*makes>=cutoff*attempts).length;
  return profileHeatColors[band];
+}
+function renderProfileHeatStandards(){
+ const thresholds=profileCurrentHeatThresholds();
+ $('heatStandardsBody').innerHTML=profileHeatStandardsZones.map(([name,zone])=>{
+  const cutoffs=thresholds[zone];
+  return `<tr><td>${name}</td><td>&lt;${cutoffs[0]}%</td>${cutoffs.slice(0,3).map((lower,index)=>`<td>${lower}-${cutoffs[index+1]-1}%</td>`).join('')}<td>${cutoffs[3]}+%</td></tr>`;
+ }).join('');
 }
 function profileGameStats(games,playerId=null,allDates=profileAllDates){
  const api=window.PTGameStatTotals;
@@ -243,27 +253,25 @@ function renderProfile(){
  const team=profileIsTeam(),player=team?null:state.players.find(p=>p.id===$('profilePlayer').value),label=profileSourceLabel();
  $('profileIdentity').textContent=team?'Entire team · All athletes':player?`#${player.number} ${player.name}${player.position?' · '+player.position:''}`:'Choose a player to see their results.';
  $('profileChartTitle').textContent=label+' Shot Heat Chart';
+ renderProfileHeatStandards();
  for(const [source,,...ids] of profileSources)for(const id of ids){const button=$(id);if(button){button.classList.toggle('active',source===profileSource);button.setAttribute('aria-pressed',String(source===profileSource))}}
  $('allDates').classList.toggle('active',profileAllDates);$('oneDate').classList.toggle('active',!profileAllDates);
  const records=team||player?profileRecords():[],zones=new Map(profileZones.map(z=>[z.id,{m:0,a:0}]));
  let makes=0,attempts=0,mapped=0;
- const categories=new Map(),months=new Map();
+ const categories=new Map();
  for(const shot of records){
   makes+=shot.makes;attempts+=shot.attempts;
   if(shot.zone){const z=zones.get(shot.zone);z.m+=shot.makes;z.a+=shot.attempts;mapped+=shot.attempts}
   const category=profileCategory(shot),c=categories.get(category)||{m:0,a:0};c.m+=shot.makes;c.a+=shot.attempts;categories.set(category,c);
-  const month=String(shot.date||'').slice(0,7)||'Undated',m=months.get(month)||{m:0,a:0};m.m+=shot.makes;m.a+=shot.attempts;months.set(month,m);
  }
- $('heatZones').innerHTML=profileZones.map(z=>{const s=zones.get(z.id);return `<path data-zone="${z.id}" d="${z.path}" fill="${profileColor(s.m,s.a,z.id)}" stroke="#101820" stroke-width="2"><title>${esc(z.name)}: ${s.a?s.m+'/'+s.a+' · '+pct(s.m,s.a):'No shots'}</title></path>`}).join('');
- $('heatLabels').innerHTML=profileZones.map(z=>{const s=zones.get(z.id),transform=z.rotate?` transform="rotate(-90 ${z.x} ${z.y})"`:'';return `<text x="${z.x}" y="${z.y-9}" text-anchor="middle"${transform}><tspan x="${z.x}">${esc(z.name)}</tspan><tspan x="${z.x}" dy="16" class="heat-zone-value">${s.a?pct(s.m,s.a):'No shots'}</tspan>${s.a?`<tspan x="${z.x}" dy="14">${s.m}/${s.a}</tspan>`:''}</text>`}).join('');
+ const minHeatAttempts=team&&profileSource==='practice'?20:1;
+ $('heatZones').innerHTML=profileZones.map(z=>{const s=zones.get(z.id),visible=s.a>=minHeatAttempts;return `<path data-zone="${z.id}" d="${z.path}" fill="${profileColor(s.m,visible?s.a:0,z.id)}" stroke="#101820" stroke-width="2"><title>${esc(z.name)}: ${visible?s.m+'/'+s.a+' · '+pct(s.m,s.a):'No shots'}</title></path>`}).join('');
+ $('heatLabels').innerHTML=profileZones.map(z=>{const s=zones.get(z.id),visible=s.a>=minHeatAttempts,transform=z.rotate?` transform="rotate(-90 ${z.x} ${z.y})"`:'';return `<text x="${z.x}" y="${z.y-9}" text-anchor="middle"${transform}><tspan x="${z.x}">${esc(z.name)}</tspan><tspan x="${z.x}" dy="16" class="heat-zone-value">${visible?pct(s.m,s.a):'No shots'}</tspan>${visible?`<tspan x="${z.x}" dy="14">${s.m}/${s.a}</tspan>`:''}</text>`}).join('');
  $('markers').innerHTML=profileSource==='game-situation'?'':records.filter(profileLocation).map(s=>`<circle cx="${Number(s.x)}" cy="${Number(s.y)}" r="3" fill="${s.makes?'#fff':'#101820'}" stroke="#fff" stroke-width="1"/>`).join('');
  $('courtMode').textContent=`${label} · ${profileAllDates?'Full season':dateRangeLabel('court')} · ${mapped} of ${attempts} attempts mapped${attempts>mapped?' · '+(attempts-mapped)+' without a court zone':''}${attempts?'':'. No shots recorded for this selection.'}`;
  renderProfileGameStats(player?.id||null);
  $('profileSummary').innerHTML=`<div class="profile-compact-stats"><span><small>Made</small><strong>${makes}</strong></span><span><small>Attempts</small><strong>${attempts}</strong></span><span><small>Shooting</small><strong>${pct(makes,attempts)}</strong></span></div>`;
  $('profileCategories').innerHTML=categories.size?table(['Category','Made / Att.','%'],[...categories].map(([name,s])=>`<tr><td>${esc(name)}</td><td>${s.m}/${s.a}</td><td>${pct(s.m,s.a)}</td></tr>`)):'<p class="muted">No shot data for this selection.</p>';
- $('monthTrend').innerHTML=[...months].sort(([a],[b])=>a.localeCompare(b)).map(([month,s])=>`<p>${esc(month)} · ${s.m}/${s.a} · ${pct(s.m,s.a)}</p>`).join('')||'<p class="muted">No monthly data.</p>';
- const located=records.filter(s=>s.kind==='court');
- $('courtHistory').innerHTML=located.length?table(['Date','Result','Zone','Manage'],located.slice().reverse().map(s=>`<tr><td>${esc(s.date)}</td><td>${s.makes?'Made':'Missed'}</td><td>${esc(profileZones.find(z=>z.id===s.zone)?.name||'Unknown')}</td><td><button data-flip="${esc(s.id)}">Flip</button> <button data-delete-court="${esc(s.id)}">Delete</button></td></tr>`)):'<p class="muted">No located shots in this selection.</p>';
  if($('teamTrendChart'))renderShootingTrend();
 }
 function renderShootingTrend(){
@@ -284,12 +292,14 @@ function renderShootingTrend(){
  if(!days.length){$('teamTrendChart').innerHTML='<p class="trend-empty">No dated shots match this selection.</p>';$('teamTrendSummary').textContent=`${owner} · ${source} · ${scope} · ${profileAllDates?'Full season':dateRangeLabel('court')}${undated?' · '+undated+' undated attempts excluded':''}`;$('teamTrendTable').innerHTML='';return}
  const value=d=>metric==='percentage'?100*d.m/d.a:metric==='makes'?d.m:d.a;
  const W=Math.max(320,Math.min(900,$('teamTrendChart').clientWidth||900)),H=290,L=58,R=24,T=24,B=44;
- const maximum=metric==='percentage'?100:Math.max(4,Math.ceil(Math.max(...days.map(value))/4)*4);
+ const values=days.map(value),lowest=Math.min(...values),highest=Math.max(...values);
+ const minimum=metric==='percentage'?Math.max(0,lowest-10):Math.max(0,lowest*0.9);
+ const maximum=metric==='percentage'?Math.min(100,highest+10):highest?highest*1.1:1;
  const first=Date.parse(days[0].date+'T00:00:00Z'),last=Date.parse(days.at(-1).date+'T00:00:00Z');
  const x=d=>L+(last===first?(W-L-R)/2:(Date.parse(d.date+'T00:00:00Z')-first)/(last-first)*(W-L-R));
- const y=v=>H-B-v/maximum*(H-T-B);
+ const y=v=>H-B-(v-minimum)/(maximum-minimum)*(H-T-B);
  const format=v=>metric==='percentage'?v.toFixed(1)+'%':String(v);
- const grid=Array.from({length:5},(_,i)=>{const v=maximum*i/4;return `<line x1="${L}" x2="${W-R}" y1="${y(v)}" y2="${y(v)}" stroke="#3d4651" stroke-dasharray="3 5"/><text x="${L-10}" y="${y(v)+4}" text-anchor="end">${v}${metric==='percentage'?'%':''}</text>`}).join('');
+ const grid=Array.from({length:5},(_,i)=>{const v=minimum+(maximum-minimum)*i/4,label=Number(v.toFixed(1));return `<line x1="${L}" x2="${W-R}" y1="${y(v)}" y2="${y(v)}" stroke="#3d4651" stroke-dasharray="3 5"/><text x="${L-10}" y="${y(v)+4}" text-anchor="end">${label}${metric==='percentage'?'%':''}</text>`}).join('');
  const labelCount=W<600?3:6;
  const labels=days.filter((_,i)=>days.length<=labelCount||i===0||i===days.length-1||i%Math.ceil(days.length/labelCount)===0).map(d=>`<text x="${x(d)}" y="${H-15}" text-anchor="middle">${d.date.slice(5)}</text>`).join('');
  const points=days.map(d=>`${x(d)},${y(value(d))}`).join(' ');
@@ -310,5 +320,4 @@ if(document.getElementById('profiles')){
  el('allDates').onclick=()=>{profileAllDates=true;renderProfile()};
  el('oneDate').onclick=()=>{profileAllDates=false;renderProfile()};
  for(const id of ['courtStartDate','courtEndDate'])el(id).onchange=()=>{profileAllDates=false;renderProfile()};
- el('courtHistory').onclick=e=>{const flip=e.target.closest('[data-flip]'),remove=e.target.closest('[data-delete-court]');if(flip){const shot=state.court.find(s=>s.id===flip.dataset.flip);if(shot){shot.made=!shot.made;save()}}if(remove&&confirm('Delete this located shot?')){state.court=state.court.filter(s=>s.id!==remove.dataset.deleteCourt);save()}};
 }
