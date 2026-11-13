@@ -114,7 +114,7 @@ function leaderboardDrills(records=state.shooting){
  return [...new Set([...defaults,...extras,...generic,...other])];
 }
 function isBoardHidden(name){return Array.isArray(state.hiddenBoards)&&state.hiddenBoards.includes(name)}
-function visibleLeaderboardDrills(records=state.shooting){return leaderboardDrills(records).filter(name=>!isBoardHidden(name))}
+function visibleLeaderboardDrills(records=state.shooting){return leaderboardDrills(records).filter(name=>name!=='Contested Shots'&&!isBoardHidden(name))}
 function renderBoardManager(){
  const root=$('boardManageRows');if(!root)return;
  const names=[...new Set([...leaderboardDrills(),...(state.hiddenBoards||[])])];
@@ -206,7 +206,7 @@ function renderLeaderboards(){if(!$('leaderboards'))return;
    return `<article class="lb-panel ${selected?'selected':''}"><div class="lb-panel-head"><strong>${esc(drillLabel(drill))}</strong>${leaderboardToggle('shooting:'+drill,d.rows.length,drillLabel(drill))}</div><div class="lb-panel-meta">${d.rows.length} qualified · ${d.total.attempts} shots · MIN 20 · ${expandedLeaderboards.has('shooting:'+drill)?'All athletes':'Top 5'}</div>${ranked?`<table><thead><tr><th>#</th><th>Athlete</th><th>M/A</th><th>%</th></tr></thead><tbody>${ranked}</tbody></table>`:'<p class="lb-empty">No athletes with 20 attempts yet</p>'}</article>`;
  }).join('');
  const winners=dailyChampionWins(leaderboardRecords());
- const dest=$('lbChampions');if(dest)dest.innerHTML=`<div class="drill-wins-heading"><div class="lb-feature-title">DAILY SHOOTING CHAMPIONS</div>${leaderboardToggle('shooting:champions',winners.length,'Daily Shooting Champions')}</div><p class="muted">One win for finishing first in shooting percentage in a drill on a practice date with at least 20 attempts. Ties share a win. Counts recalculate after coach corrections.</p>`+(winners.length?table(['Rank','Athlete','Daily Shooting Wins'],leaderboardRows('shooting:champions',winners).map((x,i)=>`<tr><td>${i+1}</td><td>${esc(playerName(x.id))}</td><td><strong>${x.count}</strong></td></tr>`)):'<p class="muted">Daily champions appear when athletes record at least 20 attempts in a drill on the same date.</p>');
+ const dest=$('lbChampions');if(dest)dest.innerHTML=`<div class="drill-wins-heading"><div class="lb-feature-title">DAILY SHOOTING CHAMPIONS</div>${leaderboardToggle('shooting:champions',winners.length,'Daily Shooting Champions')}</div><p class="muted">Daily Shooting Champion points are awarded to the athletes with the highest qualified shooting percentage in each shot category each day. Ties share a win</p>`+(winners.length?table(['Rank','Athlete','Points'],leaderboardRows('shooting:champions',winners).map((x,i)=>`<tr><td>${i+1}</td><td>${esc(playerName(x.id))}</td><td><strong>${x.count}</strong></td></tr>`)):'<p class="muted">Daily champions appear when athletes record at least 20 attempts in a drill on the same date.</p>');
 }
 function coachRows(){const p=$('coachPlayer').value,t=$('coachCategory').value,q=String($('coachPlayerSearch')?.value||'').trim().toLowerCase();return state.shooting.filter(x=>(!p||x.playerId===p)&&(!q||playerName(x.playerId).toLowerCase().includes(q)||String(state.players.find(player=>player.id===x.playerId)?.number??'').toLowerCase()===q.replace(/^#/,''))&&dateInRange(x.date,'coach')&&(!t||x.type===t)).slice().sort((a,b)=>String(b.recordedAt||b.date).localeCompare(String(a.recordedAt||a.date)))}
 const coachExpandedGroups=new Set();
