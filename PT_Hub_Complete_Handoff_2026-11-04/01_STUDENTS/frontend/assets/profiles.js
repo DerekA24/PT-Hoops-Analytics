@@ -183,6 +183,9 @@ function profileRecords({allDates=profileAllDates,source=profileSource,player=pr
 const profileHeatColors=['#dc2626','#f97316','#facc15','#a3e635','#16a34a'];
 const profileHeatThresholds={rim:[45,50,60,65],floaters:[30,35,45,50],midCornerLeft:[30,35,45,50],midCornerRight:[30,35,45,50],midWingLeft:[25,30,40,45],midWingRight:[25,30,40,45],midKey:[25,30,40,45],cornerLeft:[20,25,35,40],cornerRight:[20,25,35,40],wingLeft:[20,25,35,40],wingRight:[20,25,35,40],slotLeft:[20,25,35,40],slotRight:[20,25,35,40],top:[20,25,35,40],free:[50,60,70,80]};
 const profilePracticeHeatThresholds={rim:[65,70,80,85],floaters:[40,45,55,60],midCornerLeft:[40,45,55,60],midCornerRight:[40,45,55,60],midWingLeft:[35,40,50,55],midWingRight:[35,40,50,55],midKey:[35,40,50,55],cornerLeft:[30,35,45,50],cornerRight:[30,35,45,50],wingLeft:[30,35,45,50],wingRight:[30,35,45,50],slotLeft:[30,35,45,50],slotRight:[30,35,45,50],top:[30,35,45,50],free:[55,65,75,85]};
+const profilePracticeRatingAverages={rim:75,floaters:50,midCornerLeft:50,midCornerRight:50,midWingLeft:45,midWingRight:45,midKey:45,cornerLeft:42,cornerRight:42,wingLeft:40,wingRight:40,slotLeft:38,slotRight:38,top:38,free:70};
+function practiceBenchmark(shot){const average=profilePracticeRatingAverages[shot.zone];return average===undefined?null:average/100}
+function practiceShootingRating(makes,expected,attempts){return attempts?100+100*(makes-expected)/attempts:null}
 const profileHeatStandardsZones=[['Finishing','rim'],['Floaters','floaters'],['Midrange Corner','midCornerLeft'],['Midrange Wing','midWingLeft'],['Midrange Key','midKey'],['Corner 3','cornerLeft'],['Wing 3','wingLeft'],['Slot 3','slotLeft'],['Top of Key 3','top'],['Free Throws','free']];
 function profileCurrentHeatThresholds(){return profileSource==='practice'?profilePracticeHeatThresholds:profileHeatThresholds}
 function profileColor(makes,attempts,zone){
@@ -279,36 +282,48 @@ function renderShootingTrend(){
  const categories=[...new Set(profileRecords({allDates:true}).map(profileCategory))].sort((a,b)=>a.localeCompare(b));
  select.innerHTML='<option value="">All Shots</option>'+categories.map(name=>`<option value="${esc(name)}">${esc(name)}</option>`).join('');
  select.value=categories.includes(previous)?previous:'';
- const metric=$('trendMetric').value,metricLabel=metric==='percentage'?'Shooting Percentage':metric==='makes'?'Makes':'Attempts';
- const grouped=new Map();let undated=0;
+ const metricSelect=$('trendMetric'),previousMetric=metricSelect.value,psrAvailable=profileSource==='practice'&&!select.value;
+ metricSelect.innerHTML=(psrAvailable?'<option value="psr">Practice Shooting Rating</option>':'')+'<option value="attempts">Attempts</option><option value="makes">Makes</option><option value="percentage">Percentage</option>';
+ metricSelect.value=previousMetric==='psr'&&!psrAvailable?'percentage':previousMetric;
+ const metric=metricSelect.value,metricLabel=metric==='psr'?'Practice Shooting Rating (PSR+)':metric==='percentage'?'Shooting Percentage':metric==='makes'?'Makes':'Attempts';
+ $('teamTrendPsrHelp').hidden=metric!=='psr';
+ const grouped=new Map();let undated=0,unbenchmarked=0;
  for(const shot of records){
   if(select.value&&profileCategory(shot)!==select.value)continue;
   const date=String(shot.date||'');
   if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||!Number.isFinite(Date.parse(date+'T00:00:00Z'))){undated+=shot.attempts;continue}
-  const row=grouped.get(date)||{date,m:0,a:0};row.m+=shot.makes;row.a+=shot.attempts;grouped.set(date,row);
+  const row=grouped.get(date)||{date,m:0,a:0,psrMakes:0,psrAttempts:0,expected:0};
+  row.m+=shot.makes;row.a+=shot.attempts;
+  if(metric==='psr'){
+   const benchmark=practiceBenchmark(shot);
+   if(benchmark===null)unbenchmarked+=shot.attempts;
+   else{row.psrMakes+=shot.makes;row.psrAttempts+=shot.attempts;row.expected+=shot.attempts*benchmark}
+  }
+  grouped.set(date,row);
  }
- const days=[...grouped.values()].sort((a,b)=>a.date.localeCompare(b.date));
+ const days=[...grouped.values()].filter(day=>metric!=='psr'||day.psrAttempts>0).sort((a,b)=>a.date.localeCompare(b.date));
  const source=profileSourceLabel(),scope=select.value||'All shots',owner=profileIsTeam()?'Team':state.players.find(p=>p.id===$('profilePlayer').value)?.name||'Player';
- if(!days.length){$('teamTrendChart').innerHTML='<p class="trend-empty">No dated shots match this selection.</p>';$('teamTrendSummary').textContent=`${owner} · ${source} · ${scope} · ${profileAllDates?'Full season':dateRangeLabel('court')}${undated?' · '+undated+' undated attempts excluded':''}`;$('teamTrendTable').innerHTML='';return}
- const value=d=>metric==='percentage'?100*d.m/d.a:metric==='makes'?d.m:d.a;
+ if(!days.length){$('teamTrendChart').innerHTML=`<p class="trend-empty">${metric==='psr'?'No dated shots with a PSR+ category average match this selection.':'No dated shots match this selection.'}</p>`;$('teamTrendSummary').textContent=`${owner} · ${source} · ${scope} · ${profileAllDates?'Full season':dateRangeLabel('court')}${unbenchmarked?' · '+unbenchmarked+' unrated attempts (no category average)':''}${undated?' · '+undated+' undated attempts excluded':''}`;$('teamTrendTable').innerHTML='';return}
+ const value=d=>metric==='psr'?practiceShootingRating(d.psrMakes,d.expected,d.psrAttempts):metric==='percentage'?100*d.m/d.a:metric==='makes'?d.m:d.a;
  const W=Math.max(320,Math.min(900,$('teamTrendChart').clientWidth||900)),H=290,L=58,R=24,T=24,B=44;
  const values=days.map(value),lowest=Math.min(...values),highest=Math.max(...values);
- const minimum=metric==='percentage'?Math.max(0,lowest-10):Math.max(0,lowest*0.9);
- const maximum=metric==='percentage'?Math.min(100,highest+10):highest?highest*1.1:1;
+ const minimum=metric==='percentage'||metric==='psr'?Math.max(0,lowest-10):Math.max(0,lowest*0.9);
+ const maximum=metric==='percentage'?Math.min(100,highest+10):metric==='psr'?highest+10:highest?highest*1.1:1;
  const first=Date.parse(days[0].date+'T00:00:00Z'),last=Date.parse(days.at(-1).date+'T00:00:00Z');
  const x=d=>L+(last===first?(W-L-R)/2:(Date.parse(d.date+'T00:00:00Z')-first)/(last-first)*(W-L-R));
  const y=v=>H-B-(v-minimum)/(maximum-minimum)*(H-T-B);
- const format=v=>metric==='percentage'?v.toFixed(1)+'%':String(v);
+ const format=v=>metric==='percentage'?v.toFixed(1)+'%':metric==='psr'?'PSR+ '+v.toFixed(1):String(v);
  const grid=Array.from({length:5},(_,i)=>{const v=minimum+(maximum-minimum)*i/4,label=Number(v.toFixed(1));return `<line x1="${L}" x2="${W-R}" y1="${y(v)}" y2="${y(v)}" stroke="#3d4651" stroke-dasharray="3 5"/><text x="${L-10}" y="${y(v)+4}" text-anchor="end">${label}${metric==='percentage'?'%':''}</text>`}).join('');
  const labelCount=W<600?3:6;
  const labels=days.filter((_,i)=>days.length<=labelCount||i===0||i===days.length-1||i%Math.ceil(days.length/labelCount)===0).map(d=>`<text x="${x(d)}" y="${H-15}" text-anchor="middle">${d.date.slice(5)}</text>`).join('');
  const points=days.map(d=>`${x(d)},${y(value(d))}`).join(' ');
  const area=`M${x(days[0])} ${H-B} L${days.map(d=>`${x(d)} ${y(value(d))}`).join(' L')} L${x(days.at(-1))} ${H-B}Z`;
- const dots=days.map(d=>`<circle cx="${x(d)}" cy="${y(value(d))}" r="5" fill="#ff8d7e" stroke="#fff" stroke-width="1.5" tabindex="0" aria-label="${d.date}: ${format(value(d))}; ${d.m} made of ${d.a}"><title>${d.date}: ${format(value(d))} · ${d.m}/${d.a}</title></circle>`).join('');
- $('teamTrendChart').innerHTML=`<svg class="team-trend-svg" viewBox="0 0 ${W} ${H}" role="img" aria-labelledby="trendTitle trendDescription"><title id="trendTitle">${esc(owner)} ${esc(metricLabel)} Over Time</title><desc id="trendDescription">${esc(owner+' · '+source+' · '+scope)}. Daily totals from ${days[0].date} to ${days.at(-1).date}. Percentages use combined makes divided by attempts.</desc>${grid}<path d="${area}" fill="#c63527" opacity=".15"/><polyline points="${points}" fill="none" stroke="#f37c6d" stroke-width="3" stroke-linejoin="round"/>${dots}${labels}</svg>`;
- const totals=days.reduce((t,d)=>({m:t.m+d.m,a:t.a+d.a}),{m:0,a:0});
- $('teamTrendSummary').textContent=`${owner} · ${source} · ${scope} · ${days[0].date} to ${days.at(-1).date} · ${totals.m}/${totals.a} made · ${pct(totals.m,totals.a)}${undated?' · '+undated+' undated attempts excluded':''}`;
- $('teamTrendTable').innerHTML=table(['Date','Attempts','Makes','Percentage'],days.map(d=>`<tr><td>${d.date}</td><td>${d.a}</td><td>${d.m}</td><td>${pct(d.m,d.a)}</td></tr>`));
+ const dots=days.map(d=>{const detail=metric==='psr'?`${d.psrMakes}/${d.psrAttempts} rated shots; ${d.expected.toFixed(1)} expected makes`:`${d.m}/${d.a}`;return `<circle cx="${x(d)}" cy="${y(value(d))}" r="5" fill="#ff8d7e" stroke="#fff" stroke-width="1.5" tabindex="0" aria-label="${d.date}: ${format(value(d))}; ${detail}"><title>${d.date}: ${format(value(d))} · ${detail}</title></circle>`}).join('');
+ const description=metric==='psr'?'PSR+ compares actual makes to estimated varsity averages for each rated shot category; 100 meets expectations.':'Percentages use combined makes divided by attempts.';
+ $('teamTrendChart').innerHTML=`<svg class="team-trend-svg" viewBox="0 0 ${W} ${H}" role="img" aria-labelledby="trendTitle trendDescription"><title id="trendTitle">${esc(owner)} ${esc(metricLabel)} Over Time</title><desc id="trendDescription">${esc(owner+' · '+source+' · '+scope)}. Daily totals from ${days[0].date} to ${days.at(-1).date}. ${description}</desc>${grid}<path d="${area}" fill="#c63527" opacity=".15"/><polyline points="${points}" fill="none" stroke="#f37c6d" stroke-width="3" stroke-linejoin="round"/>${dots}${labels}</svg>`;
+ const totals=days.reduce((t,d)=>({m:t.m+d.m,a:t.a+d.a,psrMakes:t.psrMakes+d.psrMakes,psrAttempts:t.psrAttempts+d.psrAttempts,expected:t.expected+d.expected}),{m:0,a:0,psrMakes:0,psrAttempts:0,expected:0});
+ $('teamTrendSummary').textContent=metric==='psr'?`${owner} · ${source} · ${days[0].date} to ${days.at(-1).date} · ${totals.psrAttempts} rated attempts · PSR+ ${practiceShootingRating(totals.psrMakes,totals.expected,totals.psrAttempts).toFixed(1)}${unbenchmarked?' · '+unbenchmarked+' unrated attempts (no category average)':''}${undated?' · '+undated+' undated attempts excluded':''}`:`${owner} · ${source} · ${scope} · ${days[0].date} to ${days.at(-1).date} · ${totals.m}/${totals.a} made · ${pct(totals.m,totals.a)}${undated?' · '+undated+' undated attempts excluded':''}`;
+ $('teamTrendTable').innerHTML=metric==='psr'?table(['Practice Date','Rated Attempts','Makes','Expected Makes','PSR+'],days.map(d=>`<tr><td>${d.date}</td><td>${d.psrAttempts}</td><td>${d.psrMakes}</td><td>${d.expected.toFixed(1)}</td><td>${value(d).toFixed(1)}</td></tr>`)):table(['Date','Attempts','Makes','Percentage'],days.map(d=>`<tr><td>${d.date}</td><td>${d.a}</td><td>${d.m}</td><td>${pct(d.m,d.a)}</td></tr>`));
 }
 if(document.getElementById('profiles')){
  const el=id=>document.getElementById(id);

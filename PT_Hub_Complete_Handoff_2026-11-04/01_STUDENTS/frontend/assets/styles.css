@@ -395,6 +395,7 @@ main>section>h2:first-child,#coach>h2:first-child{margin-top:0!important}
 @media(max-width:760px){.profile-heading{gap:8px}.profile-heading label{width:100%}.profile-chart-heading{gap:10px}.shot-source-toggle{width:100%}.shot-source-toggle button{flex:1}.profile-compact-stats{gap:16px;flex-wrap:wrap}.profile-compact-stats span{gap:5px}.profile-compact-stats strong{font-size:18px}}
 .team-trend-controls{display:flex;gap:12px;flex-wrap:wrap}.team-trend-controls label{min-width:160px}
 .team-trend-card>.team-trend-controls{margin-bottom:16px}
+.team-trend-psr-help{margin:0 0 14px;line-height:1.5}
 .team-trend-card .profile-chart-heading{margin-bottom:18px}.team-trend-card h3{margin:0}.team-trend-card .profile-chart-heading p{font-size:12px;margin:6px 0}
 .team-trend-svg{display:block;width:100%;height:auto;background:#101820;border:1px solid #454f5b;border-radius:12px}
 .team-trend-svg text{fill:#bbc7d6;font:12px system-ui,sans-serif}.team-trend-svg circle:focus{outline:none;stroke:#fff;stroke-width:4}
@@ -714,11 +715,4 @@ body[data-entry-mode="game-situation"] #livePlayerSlots .live-slot-dropdown sele
 @media (hover:hover) and (pointer:fine){
  #athlete .athlete-select>p.muted:first-of-type,
  #athlete .athlete-select>.recent-athletes{display:none!important}
-}
-@media (max-width:767px){
- :root{--mobile-control-height:46px}
- button{min-height:var(--mobile-control-height)}
- input[type="date"]{display:block;width:100%!important;min-width:0!important;max-width:100%!important;height:var(--mobile-control-height)!important;min-height:var(--mobile-control-height)!important;box-sizing:border-box;padding:6px 10px!important;line-height:normal!important}
- input[type="date"]::-webkit-date-and-time-value{min-width:0}
- .profile-chart-controls>label,.leaderboard-filters>.row>label{min-width:0}
 }
