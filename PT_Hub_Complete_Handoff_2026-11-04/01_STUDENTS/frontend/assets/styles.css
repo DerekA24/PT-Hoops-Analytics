@@ -716,7 +716,9 @@ body[data-entry-mode="game-situation"] #livePlayerSlots .live-slot-dropdown sele
  #athlete .athlete-select>.recent-athletes{display:none!important}
 }
 @media (max-width:767px){
- input[type="date"]{display:block;width:100%!important;min-width:0!important;max-width:100%!important;height:49px!important;min-height:49px!important;box-sizing:border-box;padding:8px 10px!important;line-height:normal!important}
+ :root{--mobile-control-height:46px}
+ button{min-height:var(--mobile-control-height)}
+ input[type="date"]{display:block;width:100%!important;min-width:0!important;max-width:100%!important;height:var(--mobile-control-height)!important;min-height:var(--mobile-control-height)!important;box-sizing:border-box;padding:6px 10px!important;line-height:normal!important}
  input[type="date"]::-webkit-date-and-time-value{min-width:0}
  .profile-chart-controls>label,.leaderboard-filters>.row>label{min-width:0}
 }
