@@ -5,7 +5,8 @@
  const REQUEST_TIMEOUT_MS=20000,MASS_DELETE_LIMIT=10,RETRY_BASE_MS=1000,RETRY_MAX_MS=60000,DEFAULT_NOTE='Public courtside entry';
  // One upload carries up to MAX_BATCH records, and a screen wake only refetches when the last snapshot is older than REFRESH_MIN_GAP_MS.
  const MAX_BATCH=100,REFRESH_MIN_GAP_MS=20000;
- const page=location.pathname.split('/').pop()||'index.html';
+ // Vercel serves clean URLs, so /leaderboards is leaderboards.html. Every page check below keys on the file name.
+ const page=(()=>{const last=location.pathname.split('/').pop()||'index.html';return last.includes('.')?last:last+'.html'})();
  const fullPages=new Set(['leaderboards.html','other-leaderboards.html','team-profile.html']);
  const schedulePages=new Set(['live-game.html','schedule.html']);
  const playerPage=page==='player-profiles.html';

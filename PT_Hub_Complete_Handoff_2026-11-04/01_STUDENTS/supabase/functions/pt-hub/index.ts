@@ -177,8 +177,8 @@ Deno.serve(async req=>{
  // batches are charged inside their handler once the valid row count is known.
  const chargeRows=async(n:number)=>n<=0||(await allow("net:"+network+":write",LIMIT_WRITE_NET_ROWS,n)&&await allow("global:write",LIMIT_GLOBAL_WRITE_ROWS,n));
  if(write&&!batchAction&&!await chargeRows(1))return fail("Rate limit reached",429);
- // Diagnostic: echoes the address headers this request arrived with, so the trusted hop can be verified against the live platform.
- if(req.method==="GET"&&action==="whoami")return ok({cf:req.headers.get("cf-connecting-ip"),xff:req.headers.get("x-forwarded-for"),xri:req.headers.get("x-real-ip"),chosen:clientNetwork(req)});
+ // Diagnostic for coaches: echoes the address headers this request arrived with, so the trusted hop can be re-verified against the platform.
+ if(req.method==="GET"&&action==="whoami"){const denied=await verifyCoach(req,network,perDevice?device.toLowerCase():"");if(denied)return fail(denied.error,denied.status);return ok({cf:req.headers.get("cf-connecting-ip"),xff:req.headers.get("x-forwarded-for"),xri:req.headers.get("x-real-ip"),chosen:clientNetwork(req)})}
  if(req.method==="GET"&&action==="snapshot"){
  const params=new URL(req.url).searchParams;
  const scope=params.get("scope")||"full",playerId=params.get("player_id")||"";

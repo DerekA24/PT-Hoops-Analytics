@@ -321,3 +321,18 @@ test('a failed queue write is reported instead of swallowed', async () => {
   await wait(150);
   assert.match(context.window.ptCloudStatus().error, /could not (save|record)/i);
 });
+
+test('a clean URL without .html still gets the full snapshot on leaderboard pages', async () => {
+  const state = {players: [], games: [], shooting: [], court: [], schedule: [], drillResults: [], gameSituations: [], gameSituationShots: []};
+  const {calls} = boot({page: 'leaderboards', state, snapshot: {...roster, scope: 'full'}});
+  await wait(30);
+  const first = calls.find(c => c.method === 'GET');
+  assert.match(first.url, /scope=full/, 'Vercel serves /leaderboards for leaderboards.html; the scope must not fall back to entry');
+});
+
+test('the site root resolves to the entry page scope', async () => {
+  const state = {players: [], games: [], shooting: [], court: [], schedule: [], drillResults: [], gameSituations: [], gameSituationShots: []};
+  const {calls} = boot({page: '', state, snapshot: roster});
+  await wait(30);
+  assert.match(calls.find(c => c.method === 'GET').url, /scope=entry/);
+});
