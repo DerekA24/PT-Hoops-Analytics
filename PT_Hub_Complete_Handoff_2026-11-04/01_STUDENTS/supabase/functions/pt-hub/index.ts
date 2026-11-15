@@ -13,14 +13,16 @@ const MIN_CODE_LENGTH=10,MAX_CODE_LENGTH=64,MAX_BATCH=100;
 // Finally all writes together are capped by row count, so a batch of 100 shots costs 100 and a flood of batches cannot outrun the cap.
 // Row budgets count rows that passed validation, so garbage costs nothing shared, and they are sized for a whole roster
 // reconnecting after an outage with a 100-shot backlog each.
-const LIMIT_GET_DEVICE=40,LIMIT_WRITE_DEVICE=120,LIMIT_GET_IP=120,LIMIT_WRITE_IP=80,LIMIT_GET_NET_CEILING=600,LIMIT_WRITE_NET_ROWS=3000,LIMIT_GLOBAL_WRITE_ROWS=6000,MAX_BODY_BYTES=512*1024;
+// Every network address also has request ceilings charged before any work, so rotating device ids buys nothing beyond them.
+const LIMIT_GET_DEVICE=40,LIMIT_WRITE_DEVICE=120,LIMIT_GET_IP=120,LIMIT_WRITE_IP=80,LIMIT_GET_NET_CEILING=600,LIMIT_WRITE_NET_REQUESTS=1200,LIMIT_WRITE_NET_ROWS=3000,LIMIT_GLOBAL_WRITE_ROWS=6000,MAX_BODY_BYTES=512*1024;
 // Coach code attempts are charged atomically per network address before the code is compared, so a self-declared device id
 // cannot speed up guessing and a burst of parallel guesses cannot slip past the counter. There is deliberately no shared
 // attempt budget: one would let a guesser anywhere lock the real coach out. Strength against many networks guessing at once
 // comes from the code itself, which must be at least MIN_CODE_LENGTH characters when seeded or changed.
 // Coach code guesses: a device may try 10 times a minute, charged before the compare; a network may fail 30 times a minute,
 // counted only on a wrong code so the coach's own correct unlocks on the gym Wi-Fi never lock the coach out.
-const LIMIT_COACH_ATTEMPTS_DEVICE=10,LIMIT_COACH_FAILURES_NET=30;
+// A per-network attempt cap, charged atomically before the compare, bounds the burst that can land before the failure count catches up.
+const LIMIT_COACH_ATTEMPTS_DEVICE=10,LIMIT_COACH_ATTEMPTS_NET=120,LIMIT_COACH_FAILURES_NET=30;
 const DEFAULT_NOTE="Public courtside entry";
 const allowedOrigin=(origin:string|null)=>{
  if(origin==="https://ptbasketballhub.netlify.app")return origin;
@@ -60,6 +62,14 @@ const batchItems=(v:unknown):Record<string,unknown>[]|null=>Array.isArray(v)&&v.
 const ownerHash=(t:string)=>sha256("pt-hub-owner:"+t);
 const sameHash=(a:string,b:string)=>{if(a.length!==b.length)return false;let diff=0;for(let i=0;i<a.length;i++)diff|=a.charCodeAt(i)^b.charCodeAt(i);return diff===0};
 const allow=(bucket:string,limit:number,cost=1)=>db.rpc("pt_hub_allow_request",{p_bucket:bucket,p_limit:limit,p_cost:cost}).then(r=>!r.error&&r.data===true);
+// Reads a request body up to MAX_BODY_BYTES and gives up past that, so a missing or dishonest Content-Length cannot force a large parse.
+async function readCapped(req:Request):Promise<string|null>{
+ if(!req.body)return "";
+ const reader=req.body.getReader(),chunks:Uint8Array[]=[];let total=0;
+ for(;;){const {done,value}=await reader.read();if(done)break;total+=value.byteLength;if(total>MAX_BODY_BYTES){await reader.cancel();return null}chunks.push(value)}
+ const joined=new Uint8Array(total);let offset=0;for(const chunk of chunks){joined.set(chunk,offset);offset+=chunk.byteLength}
+ return new TextDecoder().decode(joined);
+}
 async function sha256(text:string){const bytes=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(text));return Array.from(new Uint8Array(bytes),x=>x.toString(16).padStart(2,"0")).join("")}
 async function activePlayer(id:string){const {data}=await db.from("pt_players").select("id").eq("id",id).eq("active",true).maybeSingle();return !!data}
 async function activePlayers(ids:string[]){if(!ids.length)return new Set<string>();const {data}=await db.from("pt_players").select("id").in("id",ids).eq("active",true);return new Set((data||[]).map(row=>row.id as string))}
@@ -116,6 +126,7 @@ async function bucketCount(bucket:string){const {data,error}=await db.from("pt_h
 async function verifyCoach(req:Request,network:string,device:string):Promise<CoachCheck>{
  const code=req.headers.get("x-coach-access-code")?.trim()||"";
  if(!code)return {error:"Coach access required",status:401};
+ if(!await allow("coach-try:"+network,LIMIT_COACH_ATTEMPTS_NET))return {error:"Too many coach code attempts from this network. Wait a minute and try again.",status:429};
  if(await bucketCount("coach-fail:"+network)>=LIMIT_COACH_FAILURES_NET)return {error:"Too many wrong coach codes from this network. Wait a minute and try again.",status:429};
  if(device&&!await allow("coach-try:"+device,LIMIT_COACH_ATTEMPTS_DEVICE))return {error:"Too many coach code attempts. Wait a minute and try again.",status:429};
  const {data:configured,error:accessError}=await db.from("pt_coach_access").select("code_hash").eq("id","primary").maybeSingle();
@@ -152,13 +163,15 @@ Deno.serve(async req=>{
  if(write){
   if(!["POST","PATCH","DELETE"].includes(req.method))return fail("Unknown operation",404);
   if(Number(req.headers.get("content-length")||0)>MAX_BODY_BYTES)return fail("Body too large",413);
-  try{const parsed:unknown=await req.json();if(!parsed||typeof parsed!=="object"||Array.isArray(parsed))return fail("Invalid body");body=parsed as Record<string,unknown>}catch{return fail("Invalid JSON body")}
+  const text=await readCapped(req);
+  if(text===null)return fail("Body too large",413);
+  try{const parsed:unknown=JSON.parse(text);if(!parsed||typeof parsed!=="object"||Array.isArray(parsed))return fail("Invalid body");body=parsed as Record<string,unknown>}catch{return fail("Invalid JSON body")}
   const batch=action==="shots"?body.shots:action==="drill_results"?body.results:undefined;
   if(batch!==undefined){if(!Array.isArray(batch)||!batch.length)return fail("Invalid batch");if(batch.length>MAX_BATCH)return fail("Batch too large",413);batchAction=true}
  }
  // Budgets are charged in order: the client's own, then its network, then the shared row budget. A refused client never touches the shared one.
  if(!await allow(client+kind,clientLimit))return fail("Rate limit reached",429);
- if(!write&&!await allow("net:"+network+":read",LIMIT_GET_NET_CEILING))return fail("Rate limit reached",429);
+ if(!await allow("net:"+network+(write?":write-req":":read"),write?LIMIT_WRITE_NET_REQUESTS:LIMIT_GET_NET_CEILING))return fail("Rate limit reached",429);
  // Row budgets, per network and shared, are charged for rows that passed validation. Single-record writes cost one row here;
  // batches are charged inside their handler once the valid row count is known.
  const chargeRows=async(n:number)=>n<=0||(await allow("net:"+network+":write",LIMIT_WRITE_NET_ROWS,n)&&await allow("global:write",LIMIT_GLOBAL_WRITE_ROWS,n));
