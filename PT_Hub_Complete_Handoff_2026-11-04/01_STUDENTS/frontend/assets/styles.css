@@ -759,3 +759,14 @@ body[data-page="live-game"] #ptSharedStatus:not([hidden]){font-size:12px;min-hei
  body[data-entry-mode="game-situation"] #liveResetScore,body[data-entry-mode="game-situation"] #liveResetRoster{min-height:44px;padding:8px 10px;font-size:12px}
  body[data-entry-mode="game-situation"] .live-stats-panel .live-panel-heading p,body[data-entry-mode="game-situation"] .live-last-entry p{font-size:11px}
 }
+
+/* Schedule: coach-only controls follow body[data-coach]; the next game stands out. */
+body[data-coach="locked"] .schedule-coach-only{display:none!important}
+.schedule-game[data-next-game]{border-left-color:#f34b69;border-color:#7a2a35;background:linear-gradient(90deg,#2b1a21,#191a1e 55%);box-shadow:0 0 0 1px #c6352744,0 10px 24px #0004}
+.schedule-game[data-next-game] .schedule-game-opponent strong{color:#fff}
+.schedule-next-tag{display:inline-block;width:max-content;padding:2px 8px;border-radius:20px;background:var(--pt-red,#c63527);color:#fff!important;font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;line-height:1.4}
+@media (max-width:767px){
+ #schedulePage button,#schedulePage .schedule-link{min-height:44px}
+ .schedule-game-actions button,.schedule-link{font-size:13px;padding:10px 12px}
+}
+body[data-coach="locked"] .schedule-game-actions:not(:has(.schedule-link)){display:none}

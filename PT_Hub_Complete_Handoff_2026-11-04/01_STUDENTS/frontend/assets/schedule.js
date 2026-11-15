@@ -5,14 +5,16 @@
  const sameGame=(a,b)=>a.date===b.date&&norm(a.opponent)===norm(b.opponent);
  let uploadKey='',draft=[];
  let editPermit=false,hudlPermit=false,schedulePermit=false,resolveCoach=null,verifyingCoach=false;
+ function syncCoachTools(){const toggle=$('scheduleCoachToggle');if(!toggle)return;toggle.textContent=window.PTCoachAccess?.isUnlocked?.()?'Lock coach tools':'Coach tools'}
  function requireCoach(reason){
+  if(window.PTCoachAccess?.isUnlocked?.())return Promise.resolve(true);
   if(resolveCoach)return Promise.resolve(false);
   return new Promise(resolve=>{resolveCoach=resolve;$('scheduleCoachReason').textContent=reason;$('scheduleCoachCode').value='';$('scheduleCoachError').textContent='';$('scheduleCoachGate').showModal();$('scheduleCoachCode').focus()});
  }
  function finishCoach(allowed){const resolve=resolveCoach;resolveCoach=null;$('scheduleCoachGate').close();if(resolve)resolve(allowed)}
  $('scheduleCoachCodeForm').onsubmit=async e=>{
   e.preventDefault();if(verifyingCoach)return;verifyingCoach=true;const pending=resolveCoach;
-  try{const valid=await window.PTCoachAccess.verify($('scheduleCoachCode').value);if(resolveCoach!==pending)return;if(!valid){$('scheduleCoachError').textContent='Incorrect access code.';return}finishCoach(true)}
+  try{const valid=await window.PTCoachAccess.verify($('scheduleCoachCode').value);if(resolveCoach!==pending)return;if(!valid){$('scheduleCoachError').textContent='Incorrect access code.';return}window.PTCoachAccess.unlock?.($('scheduleCoachCode').value);syncCoachTools();finishCoach(true)}
   catch{if(resolveCoach===pending)$('scheduleCoachError').textContent='Could not verify the coach access code. Please try again.'}
   finally{verifyingCoach=false}
  };
@@ -21,7 +23,9 @@
  $('scheduleCoachGate').addEventListener('close',()=>{if(resolveCoach){const resolve=resolveCoach;resolveCoach=null;resolve(false)}});
  $('scheduleGameDialog').addEventListener('close',()=>{editPermit=false});
  $('hudlImportDialog').addEventListener('close',()=>{hudlPermit=false});
- window.addEventListener('pagehide',()=>{editPermit=false;hudlPermit=false;schedulePermit=false;for(const id of ['scheduleGameDialog','hudlImportDialog'])if($(id).open)$(id).close();if(resolveCoach)finishCoach(false)});
+ window.addEventListener('pagehide',()=>{editPermit=false;hudlPermit=false;schedulePermit=false;for(const id of ['scheduleGameDialog','hudlImportDialog'])if($(id).open)$(id).close();if(resolveCoach)finishCoach(false);syncCoachTools()});
+ $('scheduleCoachToggle').onclick=async()=>{if(window.PTCoachAccess?.isUnlocked?.()){window.PTCoachAccess.lock?.();syncCoachTools();return}if(await requireCoach('Enter the coach access code to show coach tools.'))syncCoachTools()};
+ syncCoachTools();
  function gameEntries(){
   const used=new Set(),scheduleIds=new Set(state.schedule.map(s=>s.id)),entries=state.schedule.map(s=>{
    const game=state.games.find(g=>!used.has(g.id)&&(g.scheduleId===s.id||g.id===s.id))||state.games.find(g=>!used.has(g.id)&&sameGame(g,s)&&(!g.scheduleId||!scheduleIds.has(g.scheduleId)));
@@ -43,6 +47,7 @@
  function scheduleToday(){const parts=Object.fromEntries(new Intl.DateTimeFormat('en-US',{timeZone:'America/Indiana/Indianapolis',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date()).map(part=>[part.type,part.value]));return `${parts.year}-${parts.month}-${parts.day}`}
  function render(){
   const entries=gameEntries(),currentDate=scheduleToday();
+  const nextEntry=entries.find(entry=>{const item=entry.schedule||entry.game;return String(item.date||'')>=currentDate&&!(entry.game?.final||entry.schedule?.played||entry.game?.statsImport)});
   $('scheduleGameList').innerHTML=entries.length?entries.map(entry=>{
    const item=entry.schedule||entry.game,game=entry.game||{},played=isPlayed(entry),link=hudlLink(item.hudlUrl||game.hudlUrl);
    const own=game.teamScore??item.teamScore,opponent=game.opponentScore??game.oppScore??item.opponentScore;
@@ -50,7 +55,8 @@
    const hasScore=own!==null&&own!==undefined&&opponent!==null&&opponent!==undefined;
    const live=reached&&!completed&&played&&hasScore;
    const score=!reached?'Upcoming':completed?(hasScore?`${esc(own)} – ${esc(opponent)}`:'Score not recorded'):live?`${esc(own)} – ${esc(opponent)}`:String(item.date||'')===currentDate?'Upcoming':'Result pending';
-   return `<article class="schedule-game" data-game-key="${esc(entry.key)}"><div class="schedule-game-date"><strong>${esc(dateText(item.date))}</strong><small>${esc(timeText(item.time||game.time))}</small></div><div class="schedule-game-opponent"><span class="muted">${item.location==='Away'?'@':item.location==='Neutral'?'vs · Neutral':'vs'}</span> <strong>${esc(item.opponent||'Opponent TBD')}</strong></div><div class="schedule-game-score ${completed?'played':''}"><strong>${score}</strong>${completed&&hasScore?'<small>Park Tudor – Opponent</small>':live?'<small>In progress · Park Tudor – Opponent</small>':''}</div><div class="schedule-game-actions">${link?`<a class="schedule-link" href="${esc(link)}" target="_blank" rel="noopener noreferrer">Open Hudl</a>`:''}<button type="button" data-upload-hudl="${esc(entry.key)}">${game.playerStats?.length?'Replace Hudl Stats':'Upload Hudl Stats'}</button><button type="button" data-edit-game="${esc(entry.key)}">${link?'Edit':'Edit / Add Hudl Link'}</button></div></article>`;
+   const next=entry===nextEntry;
+   return `<article class="schedule-game" data-game-key="${esc(entry.key)}"${next?' data-next-game="true"':''}><div class="schedule-game-date"><strong>${esc(dateText(item.date))}</strong><small>${esc(timeText(item.time||game.time))}</small></div><div class="schedule-game-opponent"><span class="muted">${item.location==='Away'?'@':item.location==='Neutral'?'vs · Neutral':'vs'}</span> <strong>${esc(item.opponent||'Opponent TBD')}</strong></div><div class="schedule-game-score ${completed?'played':''}">${next&&!live?'<small class="schedule-next-tag">Next up</small>':''}<strong>${score}</strong>${completed&&hasScore?'<small>Park Tudor – Opponent</small>':live?'<small>In progress · Park Tudor – Opponent</small>':''}</div><div class="schedule-game-actions">${link?`<a class="schedule-link" href="${esc(link)}" target="_blank" rel="noopener noreferrer">Open Hudl</a>`:''}<button type="button" class="schedule-coach-only" data-upload-hudl="${esc(entry.key)}">${game.playerStats?.length?'Replace Hudl Stats':'Upload Hudl Stats'}</button><button type="button" class="schedule-coach-only" data-edit-game="${esc(entry.key)}">${link?'Edit':'Edit / Add Hudl Link'}</button></div></article>`;
   }).join(''):'<div class="card"><p>No games scheduled yet. Add a game or import your schedule CSV.</p></div>';
  }
  function scoreFields(){$('scheduleScoreFields').hidden=!$('schedulePlayed').checked}
