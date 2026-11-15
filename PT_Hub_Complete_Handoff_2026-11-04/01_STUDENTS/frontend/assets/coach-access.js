@@ -25,7 +25,8 @@ function show(modeChoice='unlock'){
  $('gateCurrentWrap').hidden=!changing;
  $('gateConfirmWrap').hidden=!changing;
  $('gateCodeLabel').childNodes[0].textContent=changing?'New access code':'Access code';
- $('gateCode').minLength=6;
+ // New codes must be longer than the unlock minimum; the server enforces the same rule.
+ $('gateCode').minLength=changing?10:6;
  $('gateSubmit').textContent=changing?'Change Code':'Unlock Coach Review';
  ['gateCode','gateCurrent','gateConfirm'].forEach(id=>$(id).value='');
  $('gateError').textContent='';
@@ -45,7 +46,7 @@ $('coachCodeForm').addEventListener('submit',async e=>{
  const matches=window.PTCoachAccess.verify;
  if(changing){
   if(!await matches($('gateCurrent').value))return fail('Current code is incorrect.');
-  if(code.length<6)return fail('Use at least 6 characters.');
+  if(code.length<10)return fail('Use at least 10 characters for the new code.');
   if(code!==$('gateConfirm').value)return fail('Codes do not match.');
   if(typeof window.ptCloudChangeCoachCode==='function'){try{await window.ptCloudChangeCoachCode($('gateCurrent').value,code)}catch(err){return fail('The shared database did not accept the new code: '+err.message)}}
   const s=salt();localStorage.setItem(KEY,JSON.stringify({version:CODE_VERSION,salt:s,hash:await digest(code,s)}));

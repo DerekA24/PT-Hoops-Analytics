@@ -15,7 +15,7 @@ const LIMIT_GET_DEVICE=40,LIMIT_WRITE_DEVICE=120,LIMIT_GET_IP=120,LIMIT_WRITE_IP
 // Coach code attempts are charged atomically per network address before the code is compared, so a self-declared device id
 // cannot speed up guessing and a burst of parallel guesses cannot slip past the counter. There is no shared attempt budget,
 // so an attacker elsewhere cannot lock the real coach out. 30 a minute covers a coach's busiest roster edit.
-const LIMIT_COACH_ATTEMPTS_NET=30;
+const LIMIT_COACH_ATTEMPTS_NET=30,LIMIT_COACH_ATTEMPTS_GLOBAL=600,NEW_CODE_MIN_LENGTH=10;
 const DEFAULT_NOTE="Public courtside entry";
 const allowedOrigin=(origin:string|null)=>{
  if(origin==="https://ptbasketballhub.netlify.app")return origin;
@@ -33,6 +33,17 @@ const stamp=(s:string)=>new Date(Math.min(Date.parse(s),Date.now())).toISOString
 const courtPoint=(x:unknown,y:unknown)=>Number.isInteger(x)&&(x as number)>=12&&(x as number)<=488&&Number.isInteger(y)&&(y as number)>=12&&(y as number)<=458;
 const tokenOk=(t:unknown):t is string=>typeof t==="string"&&/^[A-Za-z0-9_-]{16,128}$/.test(t);
 const deviceOk=(t:string)=>/^[0-9a-f]{32}$/i.test(t);
+// The caller's network, for rate buckets. Cloudflare sets cf-connecting-ip and overwrites any copy a client sends. Without it, the
+// trustworthy entry in x-forwarded-for is the last one, appended by the proxy in front of us; the first entry is whatever the client wrote.
+// IPv6 callers are grouped by /64, since one household or phone rotates freely inside that prefix.
+function clientNetwork(req:Request){
+ const forwarded=req.headers.get("x-forwarded-for")?.split(",").map(s=>s.trim()).filter(Boolean)||[];
+ const ip=req.headers.get("cf-connecting-ip")?.trim()||forwarded.at(-1)||"unknown";
+ if(!ip.includes(":"))return ip;
+ const [head,tail=""]=ip.split("::"),left=head.split(":").filter(Boolean),right=tail.split(":").filter(Boolean);
+ const groups=[...left,...Array(Math.max(0,8-left.length-right.length)).fill("0"),...right];
+ return groups.slice(0,4).map(g=>g.toLowerCase()).join(":")+"::/64";
+}
 type Rejection={id:string;error:string};
 const asRecord=(v:unknown):Record<string,unknown>=>v&&typeof v==="object"&&!Array.isArray(v)?v as Record<string,unknown>:{};
 const batchItems=(v:unknown):Record<string,unknown>[]|null=>Array.isArray(v)&&v.length>0&&v.length<=MAX_BATCH?v.map(asRecord):null;
@@ -84,7 +95,8 @@ const hasCoachCredential=(req:Request)=>!!req.headers.get("x-coach-access-code")
 async function verifyCoach(req:Request,network:string):Promise<CoachCheck>{
  const code=req.headers.get("x-coach-access-code")?.trim()||"";
  if(!code)return {error:"Coach access required",status:401};
- if(!await allow("coach-try:"+network,LIMIT_COACH_ATTEMPTS_NET))return {error:"Too many coach code attempts from this network. Wait a minute and try again.",status:429};
+ // Per network first, then a high overall backstop against many networks guessing at once. Both are charged before the compare.
+ if(!await allow("coach-try:"+network,LIMIT_COACH_ATTEMPTS_NET)||!await allow("coach-try:global",LIMIT_COACH_ATTEMPTS_GLOBAL))return {error:"Too many coach code attempts. Wait a minute and try again.",status:429};
  const {data:configured,error:accessError}=await db.from("pt_coach_access").select("code_hash").eq("id","primary").maybeSingle();
  if(accessError)return {error:"Coach access unavailable",status:500};
  let storedHash=configured?.code_hash as string|undefined;
@@ -108,8 +120,7 @@ Deno.serve(async req=>{
  const action=new URL(req.url).searchParams.get("action");
  try{
  const device=req.headers.get("x-pt-device")?.trim()||"";
- const ip=req.headers.get("cf-connecting-ip")||req.headers.get("x-real-ip")||req.headers.get("x-forwarded-for")?.split(",")[0]?.trim()||"unknown";
- const perDevice=deviceOk(device),network=(await sha256("pt-hub-v1:"+ip)).slice(0,32);
+ const perDevice=deviceOk(device),network=(await sha256("pt-hub-v1:"+clientNetwork(req))).slice(0,32);
  const write=req.method!=="GET",kind=write?":write":":read";
  const client=perDevice?"device:"+device.toLowerCase():"ip:"+network;
  const clientLimit=perDevice?(write?LIMIT_WRITE_DEVICE:LIMIT_GET_DEVICE):(write?LIMIT_WRITE_IP:LIMIT_GET_IP);
@@ -224,7 +235,7 @@ Deno.serve(async req=>{
  if(denied)return fail(denied.error,denied.status);
  if(req.method==="POST"&&action==="coach_code"){
   const code=str(body.code).trim();
-  if(code.length<MIN_CODE_LENGTH||code.length>MAX_CODE_LENGTH)return fail("New code must be "+MIN_CODE_LENGTH+" to "+MAX_CODE_LENGTH+" characters");
+  if(code.length<NEW_CODE_MIN_LENGTH||code.length>MAX_CODE_LENGTH)return fail("New code must be "+NEW_CODE_MIN_LENGTH+" to "+MAX_CODE_LENGTH+" characters");
   const {error}=await db.from("pt_coach_access").update({code_hash:await sha256(code),updated_at:new Date().toISOString()}).eq("id","primary");
   return error?fail("Coach code could not be changed",500):ok({ok:true});
  }
