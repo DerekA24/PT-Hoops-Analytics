@@ -9,27 +9,29 @@ const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 const id = n => `${String(n).padStart(8, '0')}-0000-4000-8000-000000000000`;
 const PLAYER = id(1), DRILL = id(2);
 
-function boot({page = 'shooting-drills.html', state, snapshot = {}, respond = () => ({ok:true, body:{ok:true}}), values = new Map()}) {
+function boot({page = 'shooting-drills.html', state, snapshot = {}, respond = () => ({ok:true, body:{ok:true}}), values = new Map(), postDelay = 0, storageThrows = () => false}) {
   const calls = [];
   const listeners = {};
+  const windowListeners = {};
   const context = {
     state,
     location: {pathname: '/' + page},
-    window: {addEventListener(){}},
+    window: {addEventListener(type, fn){(windowListeners[type] ||= []).push(fn)}},
     document: {createElement: () => ({classList:{toggle(){}}, setAttribute(){}}), querySelector: () => null, getElementById: () => null, addEventListener(type, fn){(listeners[type] ||= []).push(fn)}, visibilityState: 'visible'},
-    localStorage: {getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, String(value))},
+    localStorage: {getItem: key => values.get(key) ?? null, setItem: (key, value) => { if (storageThrows(key)) throw new Error('QuotaExceededError'); values.set(key, String(value)); }},
     fetch: async (url, options) => {
       const call = {url, method: options.method, headers: options.headers, body: options.body && JSON.parse(options.body)};
       calls.push(call);
       if (options.method === 'GET') return {ok:true, status:200, json: async () => ({scope:'entry', players:[], drills:[], shots:[], drillResults:[], scheduleRecords:[], gameSituations:[], gameSituationShots:[], ...snapshot})};
+      if (postDelay) await wait(postDelay);
       const reply = respond(call);
       return {ok: reply.ok, status: reply.status || (reply.ok ? 200 : 400), json: async () => reply.body};
     },
-    setTimeout, clearTimeout, setInterval: () => 0, AbortController,
+    setTimeout: (fn, ms) => { const t = setTimeout(fn, ms); if (typeof t.unref === 'function') t.unref(); return t; }, clearTimeout, setInterval: () => 0, AbortController,
     save: () => { context.saves = (context.saves || 0) + 1; },
   };
   vm.runInNewContext(cloud, context);
-  return {context, calls, values, listeners};
+  return {context, calls, values, listeners, windowListeners};
 }
 
 const shot = (n, extra = {}) => ({id: id(n), playerId: PLAYER, type: 'Free Throws', date: '2026-11-10', makes: 1, attempts: 1, recordedAt: '2026-11-10T12:00:00.000Z', ...extra});
@@ -51,7 +53,7 @@ test('a shot with an unregistered drill does not block the shots behind it', asy
 
 test('a shot the server rejects is set aside instead of retried forever', async () => {
   const state = {players: [], games: [], shooting: [], court: [], schedule: [], drillResults: [], gameSituations: [], gameSituationShots: []};
-  const {context, calls, values} = boot({state, snapshot: roster, respond: () => ({ok:true, body:{ok:true, saved:[id(21)], rejected:[{id: id(20), error:'Unknown player or drill'}]}})});
+  const {context, calls, values} = boot({state, snapshot: roster, respond: () => ({ok:true, body:{ok:true, saved:[id(21)], rejected:[{id: id(20), error:'Invalid shooting data'}]}})});
   await wait(30);
   state.shooting.push(shot(20), shot(21));
   context.window.ptCloudQueueSave();
@@ -180,7 +182,7 @@ test('every request carries one stable device id that survives a reload', async 
 test('drill results upload as one batch and rejected rows are set aside', async () => {
   const results = [1, 2, 3].map(n => ({id: id(80 + n), batchId: id(80), playerId: PLAYER, date: '2026-11-10', result: n === 2 ? 'loss' : 'win', recordedAt: '2026-11-10T12:00:00.000Z'}));
   const state = {players: [], games: [], shooting: [], court: [], schedule: [], drillResults: results, gameSituations: [], gameSituationShots: []};
-  const {context, calls, values} = boot({state, snapshot: roster, respond: call => ({ok:true, body:{ok:true, saved:[id(81), id(83)], rejected:[{id: id(82), error:'Unknown player'}]}})});
+  const {context, calls, values} = boot({state, snapshot: roster, respond: call => ({ok:true, body:{ok:true, saved:[id(81), id(83)], rejected:[{id: id(82), error:'Invalid drill result'}]}})});
   await wait(30);
   context.window.ptCloudQueueSave();
   await wait(150);
@@ -231,4 +233,91 @@ test('a partial batch reply leaves the rest queued and retries without a tap', a
   await wait(1200);
   assert.deepEqual(JSON.parse(values.get('pt_hub_pending_v1')), []);
   assert.deepEqual(batchIds(calls).slice(-1), [id(96)]);
+});
+
+test('an undo while the upload is in flight still removes the shot from the cloud', async () => {
+  const state = {players: [], games: [], shooting: [], court: [], schedule: [], drillResults: [], gameSituations: [], gameSituationShots: []};
+  const {context, calls} = boot({state, snapshot: roster, respond: call => call.method === 'DELETE' ? {ok:true, body:{ok:true}} : accept(call), postDelay: 120});
+  await wait(30);
+  state.shooting.push(shot(300));
+  context.window.ptCloudQueueSave();
+  await wait(100);
+  assert.equal(posts(calls).length, 1, 'upload is in flight');
+  state.shooting = [];
+  context.window.ptCloudQueueSave();
+  await wait(400);
+  const removal = calls.find(c => c.method === 'DELETE');
+  assert.ok(removal, 'the shot that was undone mid-flight must be deleted once the upload lands');
+  assert.equal(removal.body.id, id(300));
+  assert.ok(removal.body.owner_token);
+  assert.equal(context.window.ptCloudHasShot(id(300)), false);
+});
+
+test('a drill result queued during a shot upload goes up without another tap', async () => {
+  const state = {players: [], games: [], shooting: [], court: [], schedule: [], drillResults: [], gameSituations: [], gameSituationShots: []};
+  const {context, calls} = boot({state, snapshot: roster, respond: call => call.url.includes('action=shots') ? accept(call) : ({ok:true, body:{ok:true, saved: call.body.results.map(r => r.id), rejected: []}}), postDelay: 120});
+  await wait(30);
+  state.shooting.push(shot(310));
+  context.window.ptCloudQueueSave();
+  await wait(40);
+  state.drillResults.push({id: id(311), batchId: id(312), playerId: PLAYER, date: '2026-11-10', result: 'win', recordedAt: '2026-11-10T12:00:00.000Z'});
+  context.window.ptCloudQueueSave();
+  await wait(500);
+  assert.equal(calls.filter(c => c.url.includes('action=drill_results')).length, 1);
+});
+
+test('uploaded drill results are remembered across reloads instead of re-sent', async () => {
+  const results = [{id: id(320), batchId: id(321), playerId: PLAYER, date: '2026-11-10', result: 'win', recordedAt: '2026-11-10T12:00:00.000Z'}];
+  const state = {players: [], games: [], shooting: [], court: [], schedule: [], drillResults: results, gameSituations: [], gameSituationShots: []};
+  const first = boot({state, snapshot: roster, respond: call => ({ok:true, body:{ok:true, saved: call.body.results.map(r => r.id), rejected: []}})});
+  await wait(30);
+  first.context.window.ptCloudQueueSave();
+  await wait(150);
+  assert.equal(first.calls.filter(c => c.url.includes('action=drill_results')).length, 1);
+  const second = boot({state: {...state, drillResults: [...results]}, snapshot: roster, values: first.values});
+  await wait(30);
+  second.context.window.ptCloudQueueSave();
+  await wait(150);
+  assert.equal(second.calls.filter(c => c.url.includes('action=drill_results')).length, 0, 'a reload must not re-upload the season');
+});
+
+test('an unknown-player rejection keeps the shot queued until the roster catches up', async () => {
+  const state = {players: [], games: [], shooting: [], court: [], schedule: [], drillResults: [], gameSituations: [], gameSituationShots: []};
+  let attempts = 0;
+  const {context, calls, values} = boot({state, snapshot: roster, respond: call => ++attempts === 1 ? {ok:true, body:{ok:true, saved:[], rejected:[{id: id(330), error:'Unknown player or drill'}]}} : accept(call)});
+  await wait(30);
+  state.shooting.push(shot(330));
+  context.window.ptCloudQueueSave();
+  await wait(150);
+  assert.deepEqual(JSON.parse(values.get('pt_hub_pending_v1')), [id(330)], 'a roster race is not a permanent rejection');
+  assert.equal(JSON.parse(values.get('pt_hub_rejected_v1') || '[]').length, 0);
+  context.window.ptCloudQueueSave();
+  await wait(150);
+  assert.deepEqual(JSON.parse(values.get('pt_hub_pending_v1')), []);
+  assert.ok(context.window.ptCloudHasShot(id(330)));
+});
+
+test('a second tab never erases the first tab\'s pending shots', async () => {
+  const state = {players: [], games: [], shooting: [], court: [], schedule: [], drillResults: [], gameSituations: [], gameSituationShots: []};
+  const a = boot({state, snapshot: roster, respond: () => ({ok:false, status:503, body:{error:'down'}})});
+  await wait(30);
+  state.shooting.push(shot(340));
+  a.context.window.ptCloudQueueSave();
+  await wait(150);
+  assert.deepEqual(JSON.parse(a.values.get('pt_hub_pending_v1')), [id(340)]);
+  const b = boot({state: {...state, shooting: []}, snapshot: roster, values: a.values, respond: accept});
+  await wait(30);
+  b.context.window.ptCloudQueueSave();
+  await wait(150);
+  assert.deepEqual(JSON.parse(a.values.get('pt_hub_pending_v1')), [id(340)], 'tab B does not know this shot and must leave it queued for tab A');
+});
+
+test('a failed queue write is reported instead of swallowed', async () => {
+  const state = {players: [], games: [], shooting: [], court: [], schedule: [], drillResults: [], gameSituations: [], gameSituationShots: []};
+  const {context} = boot({state, snapshot: roster, respond: () => ({ok:false, status:503, body:{error:'down'}}), storageThrows: key => key === 'pt_hub_pending_v1'});
+  await wait(30);
+  state.shooting.push(shot(350));
+  context.window.ptCloudQueueSave();
+  await wait(150);
+  assert.match(context.window.ptCloudStatus().error, /could not (save|record)/i);
 });

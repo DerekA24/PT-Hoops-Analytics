@@ -11,12 +11,16 @@ const MIN_CODE_LENGTH=10,MAX_CODE_LENGTH=64,MAX_BATCH=100;
 // Rate limits per minute, checked in three layers. A client that sends its device id gets its own request budget; a client without one
 // shares the smaller legacy budget of its network address. Every network address also has a ceiling, since device ids are self-declared.
 // Finally all writes together are capped by row count, so a batch of 100 shots costs 100 and a flood of batches cannot outrun the cap.
-const LIMIT_GET_DEVICE=40,LIMIT_WRITE_DEVICE=120,LIMIT_GET_IP=120,LIMIT_WRITE_IP=80,LIMIT_GET_NET_CEILING=600,LIMIT_WRITE_NET_ROWS=1500,LIMIT_GLOBAL_WRITE_ROWS=3000;
+// Row budgets count rows that passed validation, so garbage costs nothing shared, and they are sized for a whole roster
+// reconnecting after an outage with a 100-shot backlog each.
+const LIMIT_GET_DEVICE=40,LIMIT_WRITE_DEVICE=120,LIMIT_GET_IP=120,LIMIT_WRITE_IP=80,LIMIT_GET_NET_CEILING=600,LIMIT_WRITE_NET_ROWS=3000,LIMIT_GLOBAL_WRITE_ROWS=6000,MAX_BODY_BYTES=512*1024;
 // Coach code attempts are charged atomically per network address before the code is compared, so a self-declared device id
 // cannot speed up guessing and a burst of parallel guesses cannot slip past the counter. There is deliberately no shared
 // attempt budget: one would let a guesser anywhere lock the real coach out. Strength against many networks guessing at once
 // comes from the code itself, which must be at least MIN_CODE_LENGTH characters when seeded or changed.
-const LIMIT_COACH_ATTEMPTS_NET=30;
+// Coach code guesses: a device may try 10 times a minute, charged before the compare; a network may fail 30 times a minute,
+// counted only on a wrong code so the coach's own correct unlocks on the gym Wi-Fi never lock the coach out.
+const LIMIT_COACH_ATTEMPTS_DEVICE=10,LIMIT_COACH_FAILURES_NET=30;
 const DEFAULT_NOTE="Public courtside entry";
 const allowedOrigin=(origin:string|null)=>{
  if(origin==="https://ptbasketballhub.netlify.app")return origin;
@@ -28,8 +32,12 @@ const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const CORS_HEADERS={"Access-Control-Allow-Methods":"GET,POST,PATCH,DELETE,OPTIONS","Access-Control-Allow-Headers":"content-type,x-coach-access-code,x-pt-device","Vary":"Origin"};
 function reply(v:unknown,s=200,origin:string|null=null){return new Response(JSON.stringify(v),{status:s,headers:{"Content-Type":"application/json","Cache-Control":"no-store",...CORS_HEADERS,...(origin?{"Access-Control-Allow-Origin":origin}:{})}})}
 const str=(v:unknown)=>typeof v==="string"?v:"";
-const isoDate=(s:unknown):s is string=>{if(typeof s!=="string"||!/^\d{4}-\d{2}-\d{2}$/.test(s))return false;const t=Date.parse(s+"T00:00:00Z");return Number.isFinite(t)&&new Date(t).toISOString().startsWith(s)&&Math.abs(t-Date.now())<DATE_WINDOW_MS};
-const isoStamp=(s:unknown):s is string=>{if(typeof s!=="string"||!/^\d{4}-\d{2}-\d{2}T/.test(s))return false;const t=Date.parse(s);return Number.isFinite(t)&&t>Date.now()-DATE_WINDOW_MS&&t<Date.now()+FUTURE_SLACK_MS};
+const isoDate=(s:unknown):s is string=>{if(typeof s!=="string"||!/^\d{4}-\d{2}-\d{2}$/.test(s))return false;const t=Date.parse(s+"T00:00:00Z");return Number.isFinite(t)&&new Date(t).toISOString().startsWith(s)&&t>Date.now()-DATE_WINDOW_MS&&t<Date.now()+2*FUTURE_SLACK_MS};
+// A timestamp from a phone whose clock runs ahead is clamped to now by stamp(), never rejected.
+const isoStamp=(s:unknown):s is string=>{if(typeof s!=="string"||!/^\d{4}-\d{2}-\d{2}T/.test(s))return false;const t=Date.parse(s);return Number.isFinite(t)&&t>Date.now()-DATE_WINDOW_MS};
+// Free text that reaches Postgres: control characters out, then a grapheme-safe cut.
+const cleanText=(v:unknown,max:number)=>Array.from(str(v).replace(/[\u0000-\u001f\u007f]/g,"").trim()).slice(0,max).join("");
+const stripNul=(v:unknown)=>JSON.parse(JSON.stringify(v).replace(/\\u0000/g,""));
 const stamp=(s:string)=>new Date(Math.min(Date.parse(s),Date.now())).toISOString();
 const courtPoint=(x:unknown,y:unknown)=>Number.isInteger(x)&&(x as number)>=12&&(x as number)<=488&&Number.isInteger(y)&&(y as number)>=12&&(y as number)<=458;
 const tokenOk=(t:unknown):t is string=>typeof t==="string"&&/^[A-Za-z0-9_-]{16,128}$/.test(t);
@@ -58,9 +66,18 @@ async function activePlayers(ids:string[]){if(!ids.length)return new Set<string>
 async function activeDrills(ids:string[]){if(!ids.length)return new Set<string>();const {data}=await db.from("pt_drills").select("id").in("id",ids).eq("active",true);return new Set((data||[]).map(row=>row.id as string))}
 // Shooting and drill-result rows are validated the same way whether they arrive alone or in a batch.
 const shotProblem=(b:Record<string,unknown>)=>!uuid.test(str(b.id))||!uuid.test(str(b.player_id))||!uuid.test(str(b.drill_id))||typeof b.made!=="boolean"||!isoDate(b.practice_date)?"Invalid shooting data":b.recorded_at!==undefined&&!isoStamp(b.recorded_at)?"Invalid recording timestamp":b.label!==undefined&&typeof b.label!=="string"?"Invalid drill label":"";
-async function shotRow(b:Record<string,unknown>){const label=str(b.label).trim().slice(0,MAX_LABEL_CHARS);return {id:str(b.id),player_id:b.player_id,drill_id:b.drill_id,made:b.made,practice_date:b.practice_date,notes:label||DEFAULT_NOTE,owner_token_hash:tokenOk(b.owner_token)?await ownerHash(b.owner_token):null,...(isoStamp(b.recorded_at)?{created_at:stamp(b.recorded_at)}:{})}}
+async function shotRow(b:Record<string,unknown>){const label=cleanText(b.label,MAX_LABEL_CHARS);return {id:str(b.id),player_id:b.player_id,drill_id:b.drill_id,made:b.made,practice_date:b.practice_date,notes:label||DEFAULT_NOTE,owner_token_hash:tokenOk(b.owner_token)?await ownerHash(b.owner_token):null,...(isoStamp(b.recorded_at)?{created_at:stamp(b.recorded_at)}:{})}}
 const resultProblem=(b:Record<string,unknown>)=>!uuid.test(str(b.id))||!uuid.test(str(b.batch_id))||!uuid.test(str(b.player_id))||!["win","loss"].includes(str(b.result))||!isoDate(b.practice_date)||!isoStamp(b.recorded_at)?"Invalid drill result":"";
 const resultRow=(b:Record<string,unknown>)=>({id:str(b.id),batch_id:b.batch_id,player_id:b.player_id,result:b.result,practice_date:b.practice_date,recorded_at:stamp(str(b.recorded_at))});
+// Write a batch in one statement; if Postgres refuses the statement, retry row by row so one bad row becomes one rejection.
+async function upsertRows<T extends {id:string}>(table:string,rows:T[]){
+ if(!rows.length)return {saved:[] as string[],rejected:[] as Rejection[]};
+ const bulk=await db.from(table).upsert(rows,{onConflict:"id",ignoreDuplicates:true});
+ if(!bulk.error)return {saved:rows.map(r=>r.id),rejected:[] as Rejection[]};
+ const saved:string[]=[],rejected:Rejection[]=[];
+ for(const row of rows){const {error}=await db.from(table).upsert(row,{onConflict:"id",ignoreDuplicates:true});if(error)rejected.push({id:row.id,error:"Row could not be saved"});else saved.push(row.id)}
+ return {saved,rejected};
+}
 // Split a batch into rows to write and rejections to report. Duplicate ids inside one batch collapse to the first occurrence.
 async function partition<T extends {id:string}>(items:Record<string,unknown>[],problem:(b:Record<string,unknown>)=>string,toRow:(b:Record<string,unknown>)=>T|Promise<T>,allowed:(b:Record<string,unknown>)=>boolean,denial:string){
  const rows:T[]=[],rejected:Rejection[]=[],seen=new Set<string>();
@@ -94,10 +111,13 @@ const fetchAllSituationShots=(playerId?:string)=>fetchAll<SituationShotRow>("pt_
 type CoachCheck={error:string;status:number}|null;
 const hasCoachCredential=(req:Request)=>!!req.headers.get("x-coach-access-code");
 // Coach writes carry the shared access code. Nobody signs in; the code row is seeded from a function secret and requests never create it.
-async function verifyCoach(req:Request,network:string):Promise<CoachCheck>{
+const minuteWindow=()=>new Date(Math.floor(Date.now()/60000)*60000).toISOString();
+async function bucketCount(bucket:string){const {data,error}=await db.from("pt_hub_rate").select("count").eq("bucket",bucket).eq("minute_window",minuteWindow()).maybeSingle();return error?Number.MAX_SAFE_INTEGER:Number(data?.count||0)}
+async function verifyCoach(req:Request,network:string,device:string):Promise<CoachCheck>{
  const code=req.headers.get("x-coach-access-code")?.trim()||"";
  if(!code)return {error:"Coach access required",status:401};
- if(!await allow("coach-try:"+network,LIMIT_COACH_ATTEMPTS_NET))return {error:"Too many coach code attempts from this network. Wait a minute and try again.",status:429};
+ if(await bucketCount("coach-fail:"+network)>=LIMIT_COACH_FAILURES_NET)return {error:"Too many wrong coach codes from this network. Wait a minute and try again.",status:429};
+ if(device&&!await allow("coach-try:"+device,LIMIT_COACH_ATTEMPTS_DEVICE))return {error:"Too many coach code attempts. Wait a minute and try again.",status:429};
  const {data:configured,error:accessError}=await db.from("pt_coach_access").select("code_hash").eq("id","primary").maybeSingle();
  if(accessError)return {error:"Coach access unavailable",status:500};
  let storedHash=configured?.code_hash as string|undefined;
@@ -111,7 +131,9 @@ async function verifyCoach(req:Request,network:string):Promise<CoachCheck>{
   storedHash=seeded?.code_hash;
   if(!storedHash)return {error:"Coach access could not be initialized",status:500};
  }
- return sameHash(storedHash,await sha256(code))?null:{error:"Coach access denied",status:403};
+ if(sameHash(storedHash,await sha256(code)))return null;
+ await allow("coach-fail:"+network,LIMIT_COACH_FAILURES_NET);
+ return {error:"Coach access denied",status:403};
 }
 Deno.serve(async req=>{
  const origin=allowedOrigin(req.headers.get("origin"));
@@ -126,17 +148,21 @@ Deno.serve(async req=>{
  const client=perDevice?"device:"+device.toLowerCase():"ip:"+network;
  const clientLimit=perDevice?(write?LIMIT_WRITE_DEVICE:LIMIT_GET_DEVICE):(write?LIMIT_WRITE_IP:LIMIT_GET_IP);
  // Writes are parsed before any budget is charged, so the row count is known and an oversized batch is refused for free.
- let body:Record<string,unknown>={},rows=1;
+ let body:Record<string,unknown>={},batchAction=false;
  if(write){
   if(!["POST","PATCH","DELETE"].includes(req.method))return fail("Unknown operation",404);
+  if(Number(req.headers.get("content-length")||0)>MAX_BODY_BYTES)return fail("Body too large",413);
   try{const parsed:unknown=await req.json();if(!parsed||typeof parsed!=="object"||Array.isArray(parsed))return fail("Invalid body");body=parsed as Record<string,unknown>}catch{return fail("Invalid JSON body")}
   const batch=action==="shots"?body.shots:action==="drill_results"?body.results:undefined;
-  if(batch!==undefined){if(!Array.isArray(batch)||!batch.length)return fail("Invalid batch");if(batch.length>MAX_BATCH)return fail("Batch too large",413);rows=batch.length}
+  if(batch!==undefined){if(!Array.isArray(batch)||!batch.length)return fail("Invalid batch");if(batch.length>MAX_BATCH)return fail("Batch too large",413);batchAction=true}
  }
  // Budgets are charged in order: the client's own, then its network, then the shared row budget. A refused client never touches the shared one.
  if(!await allow(client+kind,clientLimit))return fail("Rate limit reached",429);
- if(perDevice&&!await allow("net:"+network+kind,write?LIMIT_WRITE_NET_ROWS:LIMIT_GET_NET_CEILING,write?rows:1))return fail("Rate limit reached",429);
- if(write&&!await allow("global:write",LIMIT_GLOBAL_WRITE_ROWS,rows))return fail("Rate limit reached",429);
+ if(!write&&!await allow("net:"+network+":read",LIMIT_GET_NET_CEILING))return fail("Rate limit reached",429);
+ // Row budgets, per network and shared, are charged for rows that passed validation. Single-record writes cost one row here;
+ // batches are charged inside their handler once the valid row count is known.
+ const chargeRows=async(n:number)=>n<=0||(await allow("net:"+network+":write",LIMIT_WRITE_NET_ROWS,n)&&await allow("global:write",LIMIT_GLOBAL_WRITE_ROWS,n));
+ if(write&&!batchAction&&!await chargeRows(1))return fail("Rate limit reached",429);
  if(req.method==="GET"&&action==="snapshot"){
  const params=new URL(req.url).searchParams;
  const scope=params.get("scope")||"full",playerId=params.get("player_id")||"";
@@ -183,8 +209,10 @@ Deno.serve(async req=>{
   const [players,drills]=await Promise.all([activePlayers([...new Set(candidates.map(item=>str(item.player_id)))]),activeDrills([...new Set(candidates.map(item=>str(item.drill_id)))])]);
   const {rows,rejected}=await partition(items,shotProblem,shotRow,item=>players.has(str(item.player_id))&&drills.has(str(item.drill_id)),"Unknown player or drill");
   if(action==="shot"&&rejected.length)return fail(rejected[0].error,rejected[0].error==="Unknown player or drill"?403:400);
-  if(rows.length){const {error}=await db.from("pt_shots").upsert(rows,{onConflict:"id",ignoreDuplicates:true});if(error)return fail("Shots could not be saved",500)}
-  return ok(action==="shot"?{ok:true,id}:{ok:true,saved:rows.map(row=>row.id),rejected});
+  if(batchAction&&!await chargeRows(rows.length))return fail("Rate limit reached",429);
+  const written=await upsertRows("pt_shots",rows);
+  if(action==="shot")return written.rejected.length?fail("Shot could not be saved",500):ok({ok:true,id});
+  return ok({ok:true,saved:written.saved,rejected:[...rejected,...written.rejected]});
  }
  if(req.method==="POST"&&(action==="drill_results"||action==="drill_result")){
   const items=action==="drill_results"?batchItems(body.results):[body];
@@ -192,8 +220,10 @@ Deno.serve(async req=>{
   const players=await activePlayers([...new Set(items.filter(item=>!resultProblem(item)).map(item=>str(item.player_id)))]);
   const {rows,rejected}=await partition(items,resultProblem,resultRow,item=>players.has(str(item.player_id)),"Unknown player");
   if(action==="drill_result"&&rejected.length)return fail(rejected[0].error,rejected[0].error==="Unknown player"?403:400);
-  if(rows.length){const {error}=await db.from("pt_drill_results").upsert(rows,{onConflict:"id",ignoreDuplicates:true});if(error)return fail("Drill results could not be saved",500)}
-  return ok(action==="drill_result"?{ok:true,id}:{ok:true,saved:rows.map(row=>row.id),rejected});
+  if(batchAction&&!await chargeRows(rows.length))return fail("Rate limit reached",429);
+  const written=await upsertRows("pt_drill_results",rows);
+  if(action==="drill_result")return written.rejected.length?fail("Drill result could not be saved",500):ok({ok:true,id});
+  return ok({ok:true,saved:written.saved,rejected:[...rejected,...written.rejected]});
  }
  if(action==="game_situation_shot"&&req.method==="POST"){
   if(!uuid.test(id)||!uuid.test(str(body.player_id))||!isoDate(body.practice_date)||!SITUATION_EVENT_TYPES.includes(str(body.shot_type))||!isoStamp(body.recorded_at)||!courtPoint(body.court_x,body.court_y))return fail("Invalid game situation event");
@@ -205,7 +235,7 @@ Deno.serve(async req=>{
  if(action==="game_situation_shot"&&req.method==="PATCH"){
   if(!uuid.test(id)||body.undone!==true)return fail("Invalid undo request");
   let query=db.from("pt_game_situation_shots").update({undone:true}).eq("id",id);
-  if(hasCoachCredential(req)){const denied=await verifyCoach(req,network);if(denied)return fail(denied.error,denied.status)}
+  if(hasCoachCredential(req)){const denied=await verifyCoach(req,network,perDevice?device.toLowerCase():"");if(denied)return fail(denied.error,denied.status)}
   else{if(!tokenOk(body.owner_token))return fail("Coach access required",401);query=query.eq("owner_token_hash",await ownerHash(body.owner_token)).gte("recorded_at",new Date(Date.now()-PUBLIC_UNDO_WINDOW_MS).toISOString())}
   const {data,error}=await query.select("id").maybeSingle();
   return error?fail("Game situation undo could not be saved",500):data?ok({ok:true,id}):fail("Shot not found or undo window closed",404);
@@ -213,7 +243,7 @@ Deno.serve(async req=>{
  if(req.method==="DELETE"&&action==="shot"){
   if(!uuid.test(id))return fail("Invalid record");
   let query=db.from("pt_shots").delete().eq("id",id);
-  if(hasCoachCredential(req)){const denied=await verifyCoach(req,network);if(denied)return fail(denied.error,denied.status)}
+  if(hasCoachCredential(req)){const denied=await verifyCoach(req,network,perDevice?device.toLowerCase():"");if(denied)return fail(denied.error,denied.status)}
   else{if(!tokenOk(body.owner_token))return fail("Coach access required",401);query=query.eq("owner_token_hash",await ownerHash(body.owner_token)).gte("created_at",new Date(Date.now()-PUBLIC_SHOT_DELETE_WINDOW_MS).toISOString())}
   const {data,error}=await query.select("id").maybeSingle();
   return error?fail("Removal failed",500):data?ok({ok:true}):fail("Shot not found or undo window closed",404);
@@ -221,7 +251,7 @@ Deno.serve(async req=>{
  // Legacy session endpoint, kept insert-only for browser tabs that predate per-shot storage. It never overwrites an existing session.
  if(req.method==="POST"&&action==="game_situation"){
   if(!uuid.test(id)||!isoDate(body.practice_date)||!body.payload||typeof body.payload!=="object"||Array.isArray(body.payload))return fail("Invalid game situation");
-  const payload=body.payload as Record<string,unknown>;
+  const payload=stripNul(body.payload) as Record<string,unknown>;
   if(JSON.stringify(payload).length>MAX_PAYLOAD_CHARS)return fail("Game situation is too large",413);
   const {error}=await db.from("pt_game_situations").upsert({id,practice_date:body.practice_date,payload},{onConflict:"id",ignoreDuplicates:true});
   if(error)return fail("Game situation could not be saved",500);
@@ -232,7 +262,7 @@ Deno.serve(async req=>{
   if(shots.length){const {error:shotError}=await db.from("pt_game_situation_shots").upsert(shots,{onConflict:"id",ignoreDuplicates:true});if(shotError)return fail("Legacy shots could not be copied",500)}
   return ok({ok:true,id});
  }
- const denied=await verifyCoach(req,network);
+ const denied=await verifyCoach(req,network,perDevice?device.toLowerCase():"");
  if(denied)return fail(denied.error,denied.status);
  if(req.method==="POST"&&action==="coach_code"){
   const code=str(body.code).trim();
@@ -243,25 +273,27 @@ Deno.serve(async req=>{
  if(req.method==="POST"&&action==="schedule_sync"){
   if(!Array.isArray(body.schedule)||!Array.isArray(body.games))return fail("Invalid schedule");
   if(body.schedule.length>MAX_SCHEDULE_ITEMS||body.games.length>MAX_SCHEDULE_ITEMS)return fail("Schedule has too many entries",413);
-  const payload={schedule:body.schedule,games:body.games};
+  const payload=stripNul({schedule:body.schedule,games:body.games}) as Record<string,unknown>;
   if(JSON.stringify(payload).length>MAX_PAYLOAD_CHARS*5)return fail("Schedule is too large",413);
   const {error}=await db.from("pt_schedule_records").upsert({id:SCHEDULE_RECORD_ID,payload,updated_at:new Date().toISOString()},{onConflict:"id"});
   return error?fail("Schedule could not be saved",500):ok({ok:true,id:SCHEDULE_RECORD_ID});
  }
  if(req.method==="POST"&&action==="player"){
- const fullName=str(body.full_name).trim();
+ const fullName=cleanText(body.full_name,90);
  if(!uuid.test(id)||fullName.length<2||fullName.length>90)return fail("Invalid player");
  const jerseyRaw=body.jersey_number;
+ if(!(jerseyRaw===null||jerseyRaw===undefined||jerseyRaw===""||typeof jerseyRaw==="number"||typeof jerseyRaw==="string"&&/^\d{1,2}$/.test(jerseyRaw)))return fail("Invalid jersey number");
  const jersey=jerseyRaw===null||jerseyRaw===undefined||jerseyRaw===""?null:Number(jerseyRaw);
  if(jersey!==null&&!(Number.isInteger(jersey)&&jersey>=0&&jersey<=99))return fail("Invalid jersey number");
  if(body.grade!==undefined&&typeof body.grade!=="string"||body.position!==undefined&&typeof body.position!=="string")return fail("Invalid player details");
+ if(body.active!==undefined&&typeof body.active!=="boolean")return fail("Invalid player details");
  const active=body.active!==false;
  const existing=await db.from("pt_players").select("id").eq("id",id).maybeSingle();
  if(!existing.data&&active){
   const {count}=await db.from("pt_players").select("id",{count:"exact",head:true}).eq("active",true);
   if((count||0)>=MAX_ACTIVE_PLAYERS)return fail("Roster is full. Deactivate players before adding more.",409);
  }
- const {error}=await db.from("pt_players").upsert({id,full_name:fullName,jersey_number:jersey,grade:str(body.grade).slice(0,40),position:str(body.position).slice(0,40),active},{onConflict:"id"});
+ const {error}=await db.from("pt_players").upsert({id,full_name:fullName,jersey_number:jersey,grade:cleanText(body.grade,40),position:cleanText(body.position,40),active},{onConflict:"id"});
  return error?fail("Roster update failed",500):ok({ok:true});
  }
  if(req.method==="PATCH"&&action==="shot"){
