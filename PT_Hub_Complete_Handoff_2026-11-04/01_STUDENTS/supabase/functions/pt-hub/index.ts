@@ -22,7 +22,7 @@ const LIMIT_GET_DEVICE=40,LIMIT_WRITE_DEVICE=120,LIMIT_GET_IP=120,LIMIT_WRITE_IP
 // Coach code guesses: a device may try 10 times a minute, charged before the compare; a network may fail 30 times a minute,
 // counted only on a wrong code so the coach's own correct unlocks on the gym Wi-Fi never lock the coach out.
 // A per-network attempt cap, charged atomically before the compare, bounds the burst that can land before the failure count catches up.
-const LIMIT_COACH_ATTEMPTS_DEVICE=10,LIMIT_COACH_ATTEMPTS_NET=120,LIMIT_COACH_FAILURES_NET=30;
+const LIMIT_COACH_ATTEMPTS_DEVICE=10,LIMIT_COACH_ATTEMPTS_NET=40,LIMIT_COACH_FAILURES_NET=30;
 const DEFAULT_NOTE="Public courtside entry";
 const allowedOrigin=(origin:string|null)=>{
  if(origin==="https://ptbasketballhub.netlify.app")return origin;
@@ -44,12 +44,13 @@ const stamp=(s:string)=>new Date(Math.min(Date.parse(s),Date.now())).toISOString
 const courtPoint=(x:unknown,y:unknown)=>Number.isInteger(x)&&(x as number)>=12&&(x as number)<=488&&Number.isInteger(y)&&(y as number)>=12&&(y as number)<=458;
 const tokenOk=(t:unknown):t is string=>typeof t==="string"&&/^[A-Za-z0-9_-]{16,128}$/.test(t);
 const deviceOk=(t:string)=>/^[0-9a-f]{32}$/i.test(t);
-// The caller's network, for rate buckets. Cloudflare sets cf-connecting-ip and overwrites any copy a client sends. Without it, the
-// trustworthy entry in x-forwarded-for is the last one, appended by the proxy in front of us; the first entry is whatever the client wrote.
-// IPv6 callers are grouped by /64, since one household or phone rotates freely inside that prefix.
+// The caller's network, for rate buckets. Verified against the live platform on 2026-11-15: Cloudflare fronts every request, sets
+// cf-connecting-ip, and refuses requests that try to supply their own copy. x-forwarded-for is not usable: its first entry is whatever
+// the client wrote and its last entry is Supabase's relay, shared by every caller. With no Cloudflare header the request falls back to
+// its own device id rather than to a bucket shared with everyone. IPv6 callers are grouped by /64.
 function clientNetwork(req:Request){
- const forwarded=req.headers.get("x-forwarded-for")?.split(",").map(s=>s.trim()).filter(Boolean)||[];
- const raw=req.headers.get("cf-connecting-ip")?.trim()||forwarded.at(-1)||"unknown";
+ const device=req.headers.get("x-pt-device")?.trim()||"";
+ const raw=req.headers.get("cf-connecting-ip")?.trim()||(deviceOk(device)?"device:"+device.toLowerCase():"unknown");
  const ip=raw.replace(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i,"$1");
  if(!ip.includes(":"))return ip;
  const [head,tail=""]=ip.split("::"),left=head.split(":").filter(Boolean),right=tail.split(":").filter(Boolean);
@@ -176,6 +177,8 @@ Deno.serve(async req=>{
  // batches are charged inside their handler once the valid row count is known.
  const chargeRows=async(n:number)=>n<=0||(await allow("net:"+network+":write",LIMIT_WRITE_NET_ROWS,n)&&await allow("global:write",LIMIT_GLOBAL_WRITE_ROWS,n));
  if(write&&!batchAction&&!await chargeRows(1))return fail("Rate limit reached",429);
+ // Diagnostic: echoes the address headers this request arrived with, so the trusted hop can be verified against the live platform.
+ if(req.method==="GET"&&action==="whoami")return ok({cf:req.headers.get("cf-connecting-ip"),xff:req.headers.get("x-forwarded-for"),xri:req.headers.get("x-real-ip"),chosen:clientNetwork(req)});
  if(req.method==="GET"&&action==="snapshot"){
  const params=new URL(req.url).searchParams;
  const scope=params.get("scope")||"full",playerId=params.get("player_id")||"";

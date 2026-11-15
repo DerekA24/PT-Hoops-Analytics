@@ -37,6 +37,8 @@ async function send(deviceId, body, action = 'shots') {
     if (res.status === 429) { stats.limited++; per.limited++; return; }
     const json = await res.json().catch(() => ({}));
     if (res.ok) { stats.ok++; per.ok++; stats.rejected += Array.isArray(json.rejected) ? json.rejected.length : 0; return; }
+    // The single-record endpoint reports an unknown player as 403; that is the per-record rejection, not a failure.
+    if (action === 'shot' && res.status === 403) { stats.ok++; per.ok++; stats.rejected++; return; }
     stats.other++; if (stats.other <= 5) console.error('unexpected', res.status, json.error);
   } catch (e) { stats.errors++; if (stats.errors <= 5) console.error('network', e.message); }
 }
@@ -61,14 +63,16 @@ async function flood() {
 }
 
 if (SPOOF) {
-  // Answers one question about the platform: does a client-written X-Forwarded-For get a fresh rate bucket? It must not.
-  const statuses = { 403: 0, 429: 0, other: 0 };
-  for (let i = 0; i < 60; i++) {
-    const res = await fetch(`${ENDPOINT}?action=coach_code`, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: ORIGIN, 'X-PT-Device': device(), 'X-Forwarded-For': `10.${i}.${i}.${i}`, 'X-Real-IP': `10.${i}.${i}.${i}`, 'X-Coach-Access-Code': 'definitely-wrong-' + i }, body: JSON.stringify({ code: 'irrelevant-new-code' }) });
-    statuses[res.status === 403 || res.status === 429 ? res.status : 'other']++;
-  }
-  console.log(JSON.stringify({ spoofed_attempts: 60, wrong_code_403: statuses[403], rate_limited_429: statuses[429], other: statuses.other, verdict: statuses[429] >= 30 ? 'forged addresses share one bucket: safe' : 'forged addresses minted fresh buckets: UNSAFE' }, null, 2));
-  process.exit(statuses[429] >= 30 ? 0 : 1);
+  // Answers one question about the platform: does a client-written forwarding header or a fresh device id get its own coach-code
+  // budget? Sixty wrong codes go out at once, all from this one real address. The per-network attempt cap is 40 a minute, so at
+  // most 40 may be compared and the rest must be refused, whatever the forged headers say.
+  const CAP = 40;
+  const results = await Promise.all(Array.from({ length: 60 }, (_, i) => fetch(`${ENDPOINT}?action=coach_code`, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: ORIGIN, 'X-PT-Device': device(), 'X-Forwarded-For': `10.${i}.${i}.${i}`, 'X-Real-IP': `10.${i}.${i}.${i}`, 'X-Coach-Access-Code': 'definitely-wrong-' + i }, body: JSON.stringify({ code: 'irrelevant-new-code' }) }).then(r => r.status)));
+  const statuses = { 403: results.filter(s => s === 403).length, 429: results.filter(s => s === 429).length };
+  statuses.other = 60 - statuses[403] - statuses[429];
+  const safe = statuses[403] <= CAP && statuses.other === 0;
+  console.log(JSON.stringify({ spoofed_attempts: 60, compared_403: statuses[403], refused_429: statuses[429], other: statuses.other, cap_per_network_per_minute: CAP, verdict: safe ? 'forged headers and fresh device ids share one network budget: safe' : 'more codes were compared than one network may attempt: UNSAFE' }, null, 2));
+  process.exit(safe ? 0 : 1);
 }
 
 console.log(`${FLOOD ? 'FLOOD: 8 workers rotating device ids' : `${PHONES} phones, ${TAPS_PER_MIN} taps/min each${BURST ? `, ${BURST}-shot backlog` : ''}${LEGACY ? ', legacy (no device id)' : ''}`} for ${SECONDS}s against ${ENDPOINT}`);

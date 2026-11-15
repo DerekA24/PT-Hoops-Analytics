@@ -16,7 +16,7 @@ secrets.json
 
 # Supabase local development
 .supabase/
-supabase/.temp/
+**/supabase/.temp/
 
 # Python
 __pycache__/
