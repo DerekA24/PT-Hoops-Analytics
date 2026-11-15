@@ -792,3 +792,17 @@ body[data-coach="locked"] .schedule-game-actions:not(:has(.schedule-link)){displ
 .profile-game-stat-scroll::-webkit-scrollbar{height:5px}
 .profile-game-stat-scroll::-webkit-scrollbar-thumb{background:#6b7a90;border-radius:3px}
 .profile-game-stat small,.profile-situation-stat-row .profile-game-stat small{font-size:11px}
+
+/* Practice entry on phones: horizontal drill strip and a sticky Submit Results button. */
+.quick-categories-shell{position:relative}
+@media (max-width:767px){
+ #athlete .quick-categories{display:flex!important;flex-wrap:nowrap;overflow-x:auto;gap:8px!important;padding:2px 2px 8px;scroll-snap-type:x proximity;-webkit-overflow-scrolling:touch;scrollbar-width:thin;scrollbar-color:#6b7a90 transparent}
+ #athlete .quick-categories::-webkit-scrollbar{height:5px}
+ #athlete .quick-categories::-webkit-scrollbar-thumb{background:#6b7a90;border-radius:3px}
+ #athlete .quick-categories button{flex:0 0 auto;white-space:nowrap;min-height:44px!important;padding:10px 14px!important;scroll-snap-align:start}
+ .quick-categories-shell::after{content:"";position:absolute;top:0;right:0;bottom:8px;width:36px;pointer-events:none;background:linear-gradient(90deg,transparent,var(--pt-panel,#1a2230))}
+ .drill-results-card form>.row:last-child{position:sticky;bottom:0;z-index:5;display:block;margin:0 -15px -15px;padding:10px 15px 12px;background:var(--pt-panel,#1a2230);border-top:1px solid var(--pt-rule,#3b3d45)}
+ #drillResultsSubmit{width:100%;min-height:54px;font-size:16px}
+ #drillResultsStatus{display:block;margin-top:8px;text-align:center}
+}
+@media (max-width:767px){#athlete .athlete-totals small{font-size:11px!important;letter-spacing:.02em}}
