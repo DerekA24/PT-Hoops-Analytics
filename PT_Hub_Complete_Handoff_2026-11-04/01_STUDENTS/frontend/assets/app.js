@@ -367,6 +367,27 @@ if($('lbMin')){$('lbMin').addEventListener('change',()=>renderLeaderboards());}
 for(const id of ['athleteDate'])if($(id))$(id).value=today();
 if($('coach')){const query=new URLSearchParams(location.search);$('coachPlayer').value=query.get('player')||'';$('coachStartDate').value=query.get('start')||query.get('date')||'';$('coachEndDate').value=query.get('end')||query.get('date')||'';syncFilterSelect('coachCategory',getDrillTypes());const drill=query.get('drill')||'';$('coachCategory').value=drill.startsWith('Custom: ')?'Custom Drill':drill;}
 for(const id of ['lbStartDate','lbEndDate'])$(id)?.addEventListener('change',()=>{$('lbScope').value='range';renderLeaderboards()});
+// An empty leaderboard wall collapses to one card that points at data entry; date fields show only for Date Range.
+function syncLeaderboardEmptyState(wallId,emptyId,alsoHide){
+ const wall=$(wallId),empty=$(emptyId);if(!wall||!empty)return;
+ const filtered=[...wall.querySelectorAll('.lb-note,.lb-empty')].some(note=>/minimum/i.test(note.textContent));
+ const hasData=!!wall.querySelector('table')||filtered;
+ wall.hidden=!hasData;empty.hidden=hasData;
+ const heading=wall.previousElementSibling;if(heading&&heading.tagName==='H3')heading.hidden=!hasData;
+ for(const id of alsoHide){const node=$(id);if(node)node.hidden=!hasData}
+}
+function watchLeaderboardWall(wallId,emptyId,alsoHide=[]){
+ if(!$(wallId)||!$(emptyId))return;
+ const sync=()=>syncLeaderboardEmptyState(wallId,emptyId,alsoHide);
+ new MutationObserver(sync).observe($(wallId),{childList:true});sync();
+}
+function syncDateRangeFields(prefix){
+ const scope=$(prefix+'Scope');if(!scope)return;const range=scope.value==='range';
+ for(const id of [prefix+'StartDate',prefix+'EndDate']){const label=$(id)?.closest('label');if(label)label.hidden=!range}
+}
+for(const prefix of ['lb','other']){const scope=$(prefix+'Scope');if(!scope)continue;scope.addEventListener('change',()=>syncDateRangeFields(prefix));syncDateRangeFields(prefix)}
+watchLeaderboardWall('lbWall','lbEmptyState',['lbSummary','lbChampions']);
+watchLeaderboardWall('otherWall','otherEmptyState',['otherSummary']);
 window.addEventListener('storage',event=>{if(event.key!==KEY||!event.newValue)return;try{const next=JSON.parse(event.newValue);if(Array.isArray(next.players)&&Array.isArray(next.shooting)){state=normalizeState(next);if(typeof window.ptCloudResync==='function')window.ptCloudResync();render()}}catch{}});
 window.addEventListener('pageshow',event=>{if(event.persisted){try{state=normalizeState(readStoredState()||state);if(typeof window.ptCloudResync==='function')window.ptCloudResync();render()}catch{}}});
 render();

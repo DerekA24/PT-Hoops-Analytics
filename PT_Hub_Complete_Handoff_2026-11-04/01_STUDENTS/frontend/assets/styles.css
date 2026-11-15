@@ -770,3 +770,10 @@ body[data-coach="locked"] .schedule-coach-only{display:none!important}
  .schedule-game-actions button,.schedule-link{font-size:13px;padding:10px 12px}
 }
 body[data-coach="locked"] .schedule-game-actions:not(:has(.schedule-link)){display:none}
+
+/* Leaderboards: one empty-state card instead of a wall of empty panels. */
+.lb-empty-state{text-align:center;padding:28px 18px!important}
+.lb-empty-state p{margin:0 0 14px;font-size:15px;line-height:1.5}
+.lb-empty-link{display:inline-flex;align-items:center;justify-content:center;min-height:46px;padding:11px 20px;border-radius:9px;background:var(--pt-red,#bc2340);border:1px solid #eb4b66;color:#fff;font-weight:700;font-size:15px;text-decoration:none}
+.lb-empty-link:focus-visible{outline:3px solid #fff;outline-offset:2px}
+#lbSummary[hidden],#lbWall[hidden],#otherSummary[hidden],#otherWall[hidden],#lbChampions[hidden],.lb-empty-state[hidden],.leaderboard-filters label[hidden]{display:none!important}
