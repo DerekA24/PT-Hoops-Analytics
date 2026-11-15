@@ -5,6 +5,10 @@ const KEY='pt-coach-local-access-v2';
 const DEFAULT_CODE='232323',CODE_VERSION='default-232323-v1';
 const $=id=>document.getElementById(id);
 let unlocked=false, mode='unlock', sessionCode='';
+// Pages style coach-only controls from body[data-coach], so every unlock or lock passes through here.
+const setCoachState=()=>{if(document.body)document.body.dataset.coach=unlocked?'unlocked':'locked'};
+const grant=code=>{sessionCode=code;unlocked=true;setCoachState()};
+const revoke=()=>{unlocked=false;sessionCode='';setCoachState()};
 const record=()=>{try{const saved=JSON.parse(localStorage.getItem(KEY)||'null');return saved?.version===CODE_VERSION&&typeof saved.salt==='string'&&typeof saved.hash==='string'?saved:null}catch{return null}};
 const salt=()=>{let a=new Uint8Array(16);if(window.crypto&&crypto.getRandomValues)crypto.getRandomValues(a);else a.forEach((_,i)=>a[i]=Math.random()*256|0);return Array.from(a,x=>x.toString(16).padStart(2,'0')).join('')};
 async function digest(code,s){
@@ -15,7 +19,11 @@ async function digest(code,s){
 window.PTCoachAccess={
  isUnlocked:()=>unlocked,
  cloudCredential:()=>unlocked?sessionCode:null,
- verify:async code=>{const saved=record();return saved?await digest(code,saved.salt)===saved.hash:code===DEFAULT_CODE}};
+ verify:async code=>{const saved=record();return saved?await digest(code,saved.salt)===saved.hash:code===DEFAULT_CODE},
+ unlock:code=>grant(String(code??'')),
+ lock:()=>revoke()};
+setCoachState();
+window.addEventListener('pagehide',revoke);
 if(!document.getElementById('coachGate'))return;
 function show(modeChoice='unlock'){
  mode=modeChoice;
@@ -50,15 +58,15 @@ $('coachCodeForm').addEventListener('submit',async e=>{
   if(code!==$('gateConfirm').value)return fail('Codes do not match.');
   if(typeof window.ptCloudChangeCoachCode==='function'){try{await window.ptCloudChangeCoachCode($('gateCurrent').value,code)}catch(err){return fail('The shared database did not accept the new code: '+err.message)}}
   const s=salt();localStorage.setItem(KEY,JSON.stringify({version:CODE_VERSION,salt:s,hash:await digest(code,s)}));
-  sessionCode=code;unlocked=true;
+  grant(code);
   if(changing){close();return;}displayCoach();return;
  }
  if(!await matches(code))return fail('Incorrect access code.');
- sessionCode=code;unlocked=true;displayCoach();
+ grant(code);displayCoach();
  }catch(err){fail('Could not access code storage: '+err.message)}
 });
 $('coachChangeCode').addEventListener('click',()=>show('change'));
-$('coachLock').addEventListener('click',()=>{unlocked=false;sessionCode='';close();$('coachTools').hidden=true;$('coachLocked').hidden=false;window.scrollTo(0,0)});
-window.addEventListener('pagehide',()=>{unlocked=false;sessionCode='';$('coachTools').hidden=true;$('coachLocked').hidden=false});
+$('coachLock').addEventListener('click',()=>{revoke();close();$('coachTools').hidden=true;$('coachLocked').hidden=false;window.scrollTo(0,0)});
+window.addEventListener('pagehide',()=>{$('coachTools').hidden=true;$('coachLocked').hidden=false});
 show('unlock');
 })();

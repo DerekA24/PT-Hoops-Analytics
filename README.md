@@ -75,7 +75,15 @@ deletion must succeed before the local record is removed.
 RUN LOCALLY
 1. Install Python if it is not already installed.
 2. Open a terminal in the project folder.
-3. Run:
+3. On this computer, type:
+
+run
+
+   Or use the portable launcher from the project folder:
+
+.\run.cmd
+
+   If the launcher is unavailable, run:
 
 python -m http.server 8000 --bind 127.0.0.1 --directory "PT_Hub_Complete_Handoff_2026-11-04/01_STUDENTS/frontend"
 

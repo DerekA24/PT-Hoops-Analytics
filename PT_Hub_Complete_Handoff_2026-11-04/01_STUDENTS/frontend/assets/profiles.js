@@ -182,12 +182,25 @@ function profileRecords({allDates=profileAllDates,source=profileSource,player=pr
 }
 const profileHeatColors=['#dc2626','#f97316','#facc15','#a3e635','#16a34a'];
 const profileHeatThresholds={rim:[45,50,60,65],floaters:[30,35,45,50],midCornerLeft:[30,35,45,50],midCornerRight:[30,35,45,50],midWingLeft:[25,30,40,45],midWingRight:[25,30,40,45],midKey:[25,30,40,45],cornerLeft:[20,25,35,40],cornerRight:[20,25,35,40],wingLeft:[20,25,35,40],wingRight:[20,25,35,40],slotLeft:[20,25,35,40],slotRight:[20,25,35,40],top:[20,25,35,40],free:[50,60,70,80]};
+const profilePracticeHeatThresholds={rim:[65,70,80,85],floaters:[40,45,55,60],midCornerLeft:[40,45,55,60],midCornerRight:[40,45,55,60],midWingLeft:[35,40,50,55],midWingRight:[35,40,50,55],midKey:[35,40,50,55],cornerLeft:[30,35,45,50],cornerRight:[30,35,45,50],wingLeft:[30,35,45,50],wingRight:[30,35,45,50],slotLeft:[30,35,45,50],slotRight:[30,35,45,50],top:[30,35,45,50],free:[55,65,75,85]};
+const profilePracticeRatingAverages={rim:75,floaters:50,midCornerLeft:50,midCornerRight:50,midWingLeft:45,midWingRight:45,midKey:45,cornerLeft:42,cornerRight:42,wingLeft:40,wingRight:40,slotLeft:38,slotRight:38,top:38,free:70};
+function practiceBenchmark(shot){const average=profilePracticeRatingAverages[shot.zone];return average===undefined?null:average/100}
+function practiceShootingRating(makes,expected,attempts){return attempts?100+100*(makes-expected)/attempts:null}
+const profileHeatStandardsZones=[['Finishing','rim'],['Floaters','floaters'],['Midrange Corner','midCornerLeft'],['Midrange Wing','midWingLeft'],['Midrange Key','midKey'],['Corner 3','cornerLeft'],['Wing 3','wingLeft'],['Slot 3','slotLeft'],['Top of Key 3','top'],['Free Throws','free']];
+function profileCurrentHeatThresholds(){return profileSource==='practice'?profilePracticeHeatThresholds:profileHeatThresholds}
 function profileColor(makes,attempts,zone){
  if(!attempts)return '#25313d';
- const thresholds=profileHeatThresholds[zone];if(!thresholds)return '#25313d';
+ const thresholds=profileCurrentHeatThresholds()[zone];if(!thresholds)return '#25313d';
  // Compare unrounded percentages so values below a cutoff stay in their band.
  const band=thresholds.filter(cutoff=>100*makes>=cutoff*attempts).length;
  return profileHeatColors[band];
+}
+function renderProfileHeatStandards(){
+ const thresholds=profileCurrentHeatThresholds();
+ $('heatStandardsBody').innerHTML=profileHeatStandardsZones.map(([name,zone])=>{
+  const cutoffs=thresholds[zone];
+  return `<tr><td>${name}</td><td>&lt;${cutoffs[0]}%</td>${cutoffs.slice(0,3).map((lower,index)=>`<td>${lower}-${cutoffs[index+1]-1}%</td>`).join('')}<td>${cutoffs[3]}+%</td></tr>`;
+ }).join('');
 }
 function profileGameStats(games,playerId=null,allDates=profileAllDates){
  const api=window.PTGameStatTotals;
@@ -234,8 +247,19 @@ function renderProfileGameStats(playerId){
   return `<div class="profile-game-stat" title="${esc(label)}"><small>${esc(stat.short)}${rate?'/MIN':''}</small><strong>${display}</strong></div>`;
  }).join('');
  const note=!hasGames?'<p class="muted profile-game-empty">No Live Game stats recorded for this date range.</p>':'<p class="muted profile-game-note">— means this stat was not recorded.</p>';
- totalsNode.innerHTML=`<div class="profile-game-stat-scroll"><div class="profile-game-stat-row">${items(false)}</div></div>${note}`;
- rateNode.innerHTML=`<div class="profile-game-stat-scroll"><div class="profile-game-stat-row per-minute">${items(true)}</div></div>${minutes>0?note:'<p class="muted profile-game-note">Per-minute stats need recorded playing time.</p>'}`;
+ totalsNode.innerHTML=`<div class="profile-game-stat-shell"><div class="profile-game-stat-scroll"><div class="profile-game-stat-row">${items(false)}</div></div></div>${note}`;
+ rateNode.innerHTML=`<div class="profile-game-stat-shell"><div class="profile-game-stat-scroll"><div class="profile-game-stat-row per-minute">${items(true)}</div></div></div>${minutes>0?note:'<p class="muted profile-game-note">Per-minute stats need recorded playing time.</p>'}`;
+ watchStatScroll(totalsNode);watchStatScroll(rateNode);
+}
+// The right-edge fade on a stat strip disappears once the strip is scrolled to its end or does not scroll at all.
+function markStatScroll(scroll){
+ const shell=scroll.parentElement;if(!shell)return;
+ shell.classList.toggle('scroll-none',scroll.scrollWidth<=scroll.clientWidth+2);
+ shell.classList.toggle('scroll-end',scroll.scrollLeft+scroll.clientWidth>=scroll.scrollWidth-2);
+}
+function watchStatScroll(node){
+ if(typeof node?.querySelectorAll!=='function')return;
+ for(const scroll of node.querySelectorAll('.profile-game-stat-scroll')){scroll.addEventListener('scroll',()=>markStatScroll(scroll),{passive:true});markStatScroll(scroll)}
 }
 function renderProfile(){
  if(!document.getElementById('profiles'))return;
@@ -243,27 +267,25 @@ function renderProfile(){
  const team=profileIsTeam(),player=team?null:state.players.find(p=>p.id===$('profilePlayer').value),label=profileSourceLabel();
  $('profileIdentity').textContent=team?'Entire team · All athletes':player?`#${player.number} ${player.name}${player.position?' · '+player.position:''}`:'Choose a player to see their results.';
  $('profileChartTitle').textContent=label+' Shot Heat Chart';
+ renderProfileHeatStandards();
  for(const [source,,...ids] of profileSources)for(const id of ids){const button=$(id);if(button){button.classList.toggle('active',source===profileSource);button.setAttribute('aria-pressed',String(source===profileSource))}}
  $('allDates').classList.toggle('active',profileAllDates);$('oneDate').classList.toggle('active',!profileAllDates);
  const records=team||player?profileRecords():[],zones=new Map(profileZones.map(z=>[z.id,{m:0,a:0}]));
  let makes=0,attempts=0,mapped=0;
- const categories=new Map(),months=new Map();
+ const categories=new Map();
  for(const shot of records){
   makes+=shot.makes;attempts+=shot.attempts;
   if(shot.zone){const z=zones.get(shot.zone);z.m+=shot.makes;z.a+=shot.attempts;mapped+=shot.attempts}
   const category=profileCategory(shot),c=categories.get(category)||{m:0,a:0};c.m+=shot.makes;c.a+=shot.attempts;categories.set(category,c);
-  const month=String(shot.date||'').slice(0,7)||'Undated',m=months.get(month)||{m:0,a:0};m.m+=shot.makes;m.a+=shot.attempts;months.set(month,m);
  }
- $('heatZones').innerHTML=profileZones.map(z=>{const s=zones.get(z.id);return `<path data-zone="${z.id}" d="${z.path}" fill="${profileColor(s.m,s.a,z.id)}" stroke="#101820" stroke-width="2"><title>${esc(z.name)}: ${s.a?s.m+'/'+s.a+' · '+pct(s.m,s.a):'No shots'}</title></path>`}).join('');
- $('heatLabels').innerHTML=profileZones.map(z=>{const s=zones.get(z.id),transform=z.rotate?` transform="rotate(-90 ${z.x} ${z.y})"`:'';return `<text x="${z.x}" y="${z.y-9}" text-anchor="middle"${transform}><tspan x="${z.x}">${esc(z.name)}</tspan><tspan x="${z.x}" dy="16" class="heat-zone-value">${s.a?pct(s.m,s.a):'No shots'}</tspan>${s.a?`<tspan x="${z.x}" dy="14">${s.m}/${s.a}</tspan>`:''}</text>`}).join('');
+ const minHeatAttempts=team&&profileSource==='practice'?20:1;
+ $('heatZones').innerHTML=profileZones.map(z=>{const s=zones.get(z.id),visible=s.a>=minHeatAttempts;return `<path data-zone="${z.id}" d="${z.path}" fill="${profileColor(s.m,visible?s.a:0,z.id)}" stroke="#101820" stroke-width="2"><title>${esc(z.name)}: ${visible?s.m+'/'+s.a+' · '+pct(s.m,s.a):'No shots'}</title></path>`}).join('');
+ $('heatLabels').innerHTML=mapped?profileZones.map(z=>{const s=zones.get(z.id),visible=s.a>=minHeatAttempts,transform=z.rotate?` transform="rotate(-90 ${z.x} ${z.y})"`:'';return `<text x="${z.x}" y="${z.y-9}" text-anchor="middle"${transform}><tspan x="${z.x}">${esc(z.name)}</tspan><tspan x="${z.x}" dy="16" class="heat-zone-value">${visible?pct(s.m,s.a):'No shots'}</tspan>${visible?`<tspan x="${z.x}" dy="14">${s.m}/${s.a}</tspan>`:''}</text>`}).join(''):'<text class="heat-empty-note" x="250" y="300" text-anchor="middle"><tspan x="250">No shots mapped yet.</tspan><tspan x="250" dy="22">Log shots and this court fills in.</tspan></text>';
  $('markers').innerHTML=profileSource==='game-situation'?'':records.filter(profileLocation).map(s=>`<circle cx="${Number(s.x)}" cy="${Number(s.y)}" r="3" fill="${s.makes?'#fff':'#101820'}" stroke="#fff" stroke-width="1"/>`).join('');
  $('courtMode').textContent=`${label} · ${profileAllDates?'Full season':dateRangeLabel('court')} · ${mapped} of ${attempts} attempts mapped${attempts>mapped?' · '+(attempts-mapped)+' without a court zone':''}${attempts?'':'. No shots recorded for this selection.'}`;
  renderProfileGameStats(player?.id||null);
  $('profileSummary').innerHTML=`<div class="profile-compact-stats"><span><small>Made</small><strong>${makes}</strong></span><span><small>Attempts</small><strong>${attempts}</strong></span><span><small>Shooting</small><strong>${pct(makes,attempts)}</strong></span></div>`;
  $('profileCategories').innerHTML=categories.size?table(['Category','Made / Att.','%'],[...categories].map(([name,s])=>`<tr><td>${esc(name)}</td><td>${s.m}/${s.a}</td><td>${pct(s.m,s.a)}</td></tr>`)):'<p class="muted">No shot data for this selection.</p>';
- $('monthTrend').innerHTML=[...months].sort(([a],[b])=>a.localeCompare(b)).map(([month,s])=>`<p>${esc(month)} · ${s.m}/${s.a} · ${pct(s.m,s.a)}</p>`).join('')||'<p class="muted">No monthly data.</p>';
- const located=records.filter(s=>s.kind==='court');
- $('courtHistory').innerHTML=located.length?table(['Date','Result','Zone','Manage'],located.slice().reverse().map(s=>`<tr><td>${esc(s.date)}</td><td>${s.makes?'Made':'Missed'}</td><td>${esc(profileZones.find(z=>z.id===s.zone)?.name||'Unknown')}</td><td><button data-flip="${esc(s.id)}">Flip</button> <button data-delete-court="${esc(s.id)}">Delete</button></td></tr>`)):'<p class="muted">No located shots in this selection.</p>';
  if($('teamTrendChart'))renderShootingTrend();
 }
 function renderShootingTrend(){
@@ -271,34 +293,48 @@ function renderShootingTrend(){
  const categories=[...new Set(profileRecords({allDates:true}).map(profileCategory))].sort((a,b)=>a.localeCompare(b));
  select.innerHTML='<option value="">All Shots</option>'+categories.map(name=>`<option value="${esc(name)}">${esc(name)}</option>`).join('');
  select.value=categories.includes(previous)?previous:'';
- const metric=$('trendMetric').value,metricLabel=metric==='percentage'?'Shooting Percentage':metric==='makes'?'Makes':'Attempts';
- const grouped=new Map();let undated=0;
+ const metricSelect=$('trendMetric'),previousMetric=metricSelect.value,psrAvailable=profileSource==='practice'&&!select.value;
+ metricSelect.innerHTML=(psrAvailable?'<option value="psr">Practice Shooting Rating</option>':'')+'<option value="attempts">Attempts</option><option value="makes">Makes</option><option value="percentage">Percentage</option>';
+ metricSelect.value=previousMetric==='psr'&&!psrAvailable?'percentage':previousMetric;
+ const metric=metricSelect.value,metricLabel=metric==='psr'?'Practice Shooting Rating (PSR+)':metric==='percentage'?'Shooting Percentage':metric==='makes'?'Makes':'Attempts';
+ $('teamTrendPsrHelp').hidden=metric!=='psr';
+ const grouped=new Map();let undated=0,unbenchmarked=0;
  for(const shot of records){
   if(select.value&&profileCategory(shot)!==select.value)continue;
   const date=String(shot.date||'');
   if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||!Number.isFinite(Date.parse(date+'T00:00:00Z'))){undated+=shot.attempts;continue}
-  const row=grouped.get(date)||{date,m:0,a:0};row.m+=shot.makes;row.a+=shot.attempts;grouped.set(date,row);
+  const row=grouped.get(date)||{date,m:0,a:0,psrMakes:0,psrAttempts:0,expected:0};
+  row.m+=shot.makes;row.a+=shot.attempts;
+  if(metric==='psr'){
+   const benchmark=practiceBenchmark(shot);
+   if(benchmark===null)unbenchmarked+=shot.attempts;
+   else{row.psrMakes+=shot.makes;row.psrAttempts+=shot.attempts;row.expected+=shot.attempts*benchmark}
+  }
+  grouped.set(date,row);
  }
- const days=[...grouped.values()].sort((a,b)=>a.date.localeCompare(b.date));
+ const days=[...grouped.values()].filter(day=>metric!=='psr'||day.psrAttempts>0).sort((a,b)=>a.date.localeCompare(b.date));
  const source=profileSourceLabel(),scope=select.value||'All shots',owner=profileIsTeam()?'Team':state.players.find(p=>p.id===$('profilePlayer').value)?.name||'Player';
- if(!days.length){$('teamTrendChart').innerHTML='<p class="trend-empty">No dated shots match this selection.</p>';$('teamTrendSummary').textContent=`${owner} · ${source} · ${scope} · ${profileAllDates?'Full season':dateRangeLabel('court')}${undated?' · '+undated+' undated attempts excluded':''}`;$('teamTrendTable').innerHTML='';return}
- const value=d=>metric==='percentage'?100*d.m/d.a:metric==='makes'?d.m:d.a;
+ if(!days.length){$('teamTrendChart').innerHTML=`<p class="trend-empty">${metric==='psr'?'No dated shots with a PSR+ category average match this selection.':'No dated shots match this selection.'}</p>`;$('teamTrendSummary').textContent=`${owner} · ${source} · ${scope} · ${profileAllDates?'Full season':dateRangeLabel('court')}${unbenchmarked?' · '+unbenchmarked+' unrated attempts (no category average)':''}${undated?' · '+undated+' undated attempts excluded':''}`;$('teamTrendTable').innerHTML='';return}
+ const value=d=>metric==='psr'?practiceShootingRating(d.psrMakes,d.expected,d.psrAttempts):metric==='percentage'?100*d.m/d.a:metric==='makes'?d.m:d.a;
  const W=Math.max(320,Math.min(900,$('teamTrendChart').clientWidth||900)),H=290,L=58,R=24,T=24,B=44;
- const maximum=metric==='percentage'?100:Math.max(4,Math.ceil(Math.max(...days.map(value))/4)*4);
+ const values=days.map(value),lowest=Math.min(...values),highest=Math.max(...values);
+ const minimum=metric==='percentage'||metric==='psr'?Math.max(0,lowest-10):Math.max(0,lowest*0.9);
+ const maximum=metric==='percentage'?Math.min(100,highest+10):metric==='psr'?highest+10:highest?highest*1.1:1;
  const first=Date.parse(days[0].date+'T00:00:00Z'),last=Date.parse(days.at(-1).date+'T00:00:00Z');
  const x=d=>L+(last===first?(W-L-R)/2:(Date.parse(d.date+'T00:00:00Z')-first)/(last-first)*(W-L-R));
- const y=v=>H-B-v/maximum*(H-T-B);
- const format=v=>metric==='percentage'?v.toFixed(1)+'%':String(v);
- const grid=Array.from({length:5},(_,i)=>{const v=maximum*i/4;return `<line x1="${L}" x2="${W-R}" y1="${y(v)}" y2="${y(v)}" stroke="#3d4651" stroke-dasharray="3 5"/><text x="${L-10}" y="${y(v)+4}" text-anchor="end">${v}${metric==='percentage'?'%':''}</text>`}).join('');
+ const y=v=>H-B-(v-minimum)/(maximum-minimum)*(H-T-B);
+ const format=v=>metric==='percentage'?v.toFixed(1)+'%':metric==='psr'?'PSR+ '+v.toFixed(1):String(v);
+ const grid=Array.from({length:5},(_,i)=>{const v=minimum+(maximum-minimum)*i/4,label=Number(v.toFixed(1));return `<line x1="${L}" x2="${W-R}" y1="${y(v)}" y2="${y(v)}" stroke="#3d4651" stroke-dasharray="3 5"/><text x="${L-10}" y="${y(v)+4}" text-anchor="end">${label}${metric==='percentage'?'%':''}</text>`}).join('');
  const labelCount=W<600?3:6;
  const labels=days.filter((_,i)=>days.length<=labelCount||i===0||i===days.length-1||i%Math.ceil(days.length/labelCount)===0).map(d=>`<text x="${x(d)}" y="${H-15}" text-anchor="middle">${d.date.slice(5)}</text>`).join('');
  const points=days.map(d=>`${x(d)},${y(value(d))}`).join(' ');
  const area=`M${x(days[0])} ${H-B} L${days.map(d=>`${x(d)} ${y(value(d))}`).join(' L')} L${x(days.at(-1))} ${H-B}Z`;
- const dots=days.map(d=>`<circle cx="${x(d)}" cy="${y(value(d))}" r="5" fill="#ff8d7e" stroke="#fff" stroke-width="1.5" tabindex="0" aria-label="${d.date}: ${format(value(d))}; ${d.m} made of ${d.a}"><title>${d.date}: ${format(value(d))} · ${d.m}/${d.a}</title></circle>`).join('');
- $('teamTrendChart').innerHTML=`<svg class="team-trend-svg" viewBox="0 0 ${W} ${H}" role="img" aria-labelledby="trendTitle trendDescription"><title id="trendTitle">${esc(owner)} ${esc(metricLabel)} Over Time</title><desc id="trendDescription">${esc(owner+' · '+source+' · '+scope)}. Daily totals from ${days[0].date} to ${days.at(-1).date}. Percentages use combined makes divided by attempts.</desc>${grid}<path d="${area}" fill="#c63527" opacity=".15"/><polyline points="${points}" fill="none" stroke="#f37c6d" stroke-width="3" stroke-linejoin="round"/>${dots}${labels}</svg>`;
- const totals=days.reduce((t,d)=>({m:t.m+d.m,a:t.a+d.a}),{m:0,a:0});
- $('teamTrendSummary').textContent=`${owner} · ${source} · ${scope} · ${days[0].date} to ${days.at(-1).date} · ${totals.m}/${totals.a} made · ${pct(totals.m,totals.a)}${undated?' · '+undated+' undated attempts excluded':''}`;
- $('teamTrendTable').innerHTML=table(['Date','Attempts','Makes','Percentage'],days.map(d=>`<tr><td>${d.date}</td><td>${d.a}</td><td>${d.m}</td><td>${pct(d.m,d.a)}</td></tr>`));
+ const dots=days.map(d=>{const detail=metric==='psr'?`${d.psrMakes}/${d.psrAttempts} rated shots; ${d.expected.toFixed(1)} expected makes`:`${d.m}/${d.a}`;return `<circle cx="${x(d)}" cy="${y(value(d))}" r="5" fill="#ff8d7e" stroke="#fff" stroke-width="1.5" tabindex="0" aria-label="${d.date}: ${format(value(d))}; ${detail}"><title>${d.date}: ${format(value(d))} · ${detail}</title></circle>`}).join('');
+ const description=metric==='psr'?'PSR+ compares actual makes to estimated varsity averages for each rated shot category; 100 meets expectations.':'Percentages use combined makes divided by attempts.';
+ $('teamTrendChart').innerHTML=`<svg class="team-trend-svg" viewBox="0 0 ${W} ${H}" role="img" aria-labelledby="trendTitle trendDescription"><title id="trendTitle">${esc(owner)} ${esc(metricLabel)} Over Time</title><desc id="trendDescription">${esc(owner+' · '+source+' · '+scope)}. Daily totals from ${days[0].date} to ${days.at(-1).date}. ${description}</desc>${grid}<path d="${area}" fill="#c63527" opacity=".15"/><polyline points="${points}" fill="none" stroke="#f37c6d" stroke-width="3" stroke-linejoin="round"/>${dots}${labels}</svg>`;
+ const totals=days.reduce((t,d)=>({m:t.m+d.m,a:t.a+d.a,psrMakes:t.psrMakes+d.psrMakes,psrAttempts:t.psrAttempts+d.psrAttempts,expected:t.expected+d.expected}),{m:0,a:0,psrMakes:0,psrAttempts:0,expected:0});
+ $('teamTrendSummary').textContent=metric==='psr'?`${owner} · ${source} · ${days[0].date} to ${days.at(-1).date} · ${totals.psrAttempts} rated attempts · PSR+ ${practiceShootingRating(totals.psrMakes,totals.expected,totals.psrAttempts).toFixed(1)}${unbenchmarked?' · '+unbenchmarked+' unrated attempts (no category average)':''}${undated?' · '+undated+' undated attempts excluded':''}`:`${owner} · ${source} · ${scope} · ${days[0].date} to ${days.at(-1).date} · ${totals.m}/${totals.a} made · ${pct(totals.m,totals.a)}${undated?' · '+undated+' undated attempts excluded':''}`;
+ $('teamTrendTable').innerHTML=metric==='psr'?table(['Practice Date','Rated Attempts','Makes','Expected Makes','PSR+'],days.map(d=>`<tr><td>${d.date}</td><td>${d.psrAttempts}</td><td>${d.psrMakes}</td><td>${d.expected.toFixed(1)}</td><td>${value(d).toFixed(1)}</td></tr>`)):table(['Date','Attempts','Makes','Percentage'],days.map(d=>`<tr><td>${d.date}</td><td>${d.a}</td><td>${d.m}</td><td>${pct(d.m,d.a)}</td></tr>`));
 }
 if(document.getElementById('profiles')){
  const el=id=>document.getElementById(id);
@@ -310,5 +346,4 @@ if(document.getElementById('profiles')){
  el('allDates').onclick=()=>{profileAllDates=true;renderProfile()};
  el('oneDate').onclick=()=>{profileAllDates=false;renderProfile()};
  for(const id of ['courtStartDate','courtEndDate'])el(id).onchange=()=>{profileAllDates=false;renderProfile()};
- el('courtHistory').onclick=e=>{const flip=e.target.closest('[data-flip]'),remove=e.target.closest('[data-delete-court]');if(flip){const shot=state.court.find(s=>s.id===flip.dataset.flip);if(shot){shot.made=!shot.made;save()}}if(remove&&confirm('Delete this located shot?')){state.court=state.court.filter(s=>s.id!==remove.dataset.deleteCourt);save()}};
 }
