@@ -777,3 +777,18 @@ body[data-coach="locked"] .schedule-game-actions:not(:has(.schedule-link)){displ
 .lb-empty-link{display:inline-flex;align-items:center;justify-content:center;min-height:46px;padding:11px 20px;border-radius:9px;background:var(--pt-red,#bc2340);border:1px solid #eb4b66;color:#fff;font-weight:700;font-size:15px;text-decoration:none}
 .lb-empty-link:focus-visible{outline:3px solid #fff;outline-offset:2px}
 #lbSummary[hidden],#lbWall[hidden],#otherSummary[hidden],#otherWall[hidden],#lbChampions[hidden],.lb-empty-state[hidden],.leaderboard-filters label[hidden]{display:none!important}
+
+/* Profiles: quiet empty heat court, phone-sized zone labels, visible stat-strip scrolling. */
+#heatLabels .heat-empty-note{font:500 15px system-ui,sans-serif;fill:#aab8ca;stroke:none;paint-order:normal}
+@media (max-width:767px){
+ #heatLabels text{font-size:9px}
+ #heatLabels .heat-zone-value{font-size:12px}
+ #heatLabels .heat-empty-note{font-size:14px}
+}
+.profile-game-stat-shell{position:relative}
+.profile-game-stat-shell::after{content:"";position:absolute;top:0;right:0;bottom:6px;width:40px;pointer-events:none;background:linear-gradient(90deg,transparent,var(--pt-panel,#1a2230));transition:opacity .15s}
+.profile-game-stat-shell.scroll-end::after,.profile-game-stat-shell.scroll-none::after{opacity:0}
+.profile-game-stat-scroll{scrollbar-width:thin;scrollbar-color:#6b7a90 transparent;padding-bottom:6px}
+.profile-game-stat-scroll::-webkit-scrollbar{height:5px}
+.profile-game-stat-scroll::-webkit-scrollbar-thumb{background:#6b7a90;border-radius:3px}
+.profile-game-stat small,.profile-situation-stat-row .profile-game-stat small{font-size:11px}

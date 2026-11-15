@@ -247,8 +247,19 @@ function renderProfileGameStats(playerId){
   return `<div class="profile-game-stat" title="${esc(label)}"><small>${esc(stat.short)}${rate?'/MIN':''}</small><strong>${display}</strong></div>`;
  }).join('');
  const note=!hasGames?'<p class="muted profile-game-empty">No Live Game stats recorded for this date range.</p>':'<p class="muted profile-game-note">— means this stat was not recorded.</p>';
- totalsNode.innerHTML=`<div class="profile-game-stat-scroll"><div class="profile-game-stat-row">${items(false)}</div></div>${note}`;
- rateNode.innerHTML=`<div class="profile-game-stat-scroll"><div class="profile-game-stat-row per-minute">${items(true)}</div></div>${minutes>0?note:'<p class="muted profile-game-note">Per-minute stats need recorded playing time.</p>'}`;
+ totalsNode.innerHTML=`<div class="profile-game-stat-shell"><div class="profile-game-stat-scroll"><div class="profile-game-stat-row">${items(false)}</div></div></div>${note}`;
+ rateNode.innerHTML=`<div class="profile-game-stat-shell"><div class="profile-game-stat-scroll"><div class="profile-game-stat-row per-minute">${items(true)}</div></div></div>${minutes>0?note:'<p class="muted profile-game-note">Per-minute stats need recorded playing time.</p>'}`;
+ watchStatScroll(totalsNode);watchStatScroll(rateNode);
+}
+// The right-edge fade on a stat strip disappears once the strip is scrolled to its end or does not scroll at all.
+function markStatScroll(scroll){
+ const shell=scroll.parentElement;if(!shell)return;
+ shell.classList.toggle('scroll-none',scroll.scrollWidth<=scroll.clientWidth+2);
+ shell.classList.toggle('scroll-end',scroll.scrollLeft+scroll.clientWidth>=scroll.scrollWidth-2);
+}
+function watchStatScroll(node){
+ if(typeof node?.querySelectorAll!=='function')return;
+ for(const scroll of node.querySelectorAll('.profile-game-stat-scroll')){scroll.addEventListener('scroll',()=>markStatScroll(scroll),{passive:true});markStatScroll(scroll)}
 }
 function renderProfile(){
  if(!document.getElementById('profiles'))return;
@@ -269,7 +280,7 @@ function renderProfile(){
  }
  const minHeatAttempts=team&&profileSource==='practice'?20:1;
  $('heatZones').innerHTML=profileZones.map(z=>{const s=zones.get(z.id),visible=s.a>=minHeatAttempts;return `<path data-zone="${z.id}" d="${z.path}" fill="${profileColor(s.m,visible?s.a:0,z.id)}" stroke="#101820" stroke-width="2"><title>${esc(z.name)}: ${visible?s.m+'/'+s.a+' · '+pct(s.m,s.a):'No shots'}</title></path>`}).join('');
- $('heatLabels').innerHTML=profileZones.map(z=>{const s=zones.get(z.id),visible=s.a>=minHeatAttempts,transform=z.rotate?` transform="rotate(-90 ${z.x} ${z.y})"`:'';return `<text x="${z.x}" y="${z.y-9}" text-anchor="middle"${transform}><tspan x="${z.x}">${esc(z.name)}</tspan><tspan x="${z.x}" dy="16" class="heat-zone-value">${visible?pct(s.m,s.a):'No shots'}</tspan>${visible?`<tspan x="${z.x}" dy="14">${s.m}/${s.a}</tspan>`:''}</text>`}).join('');
+ $('heatLabels').innerHTML=mapped?profileZones.map(z=>{const s=zones.get(z.id),visible=s.a>=minHeatAttempts,transform=z.rotate?` transform="rotate(-90 ${z.x} ${z.y})"`:'';return `<text x="${z.x}" y="${z.y-9}" text-anchor="middle"${transform}><tspan x="${z.x}">${esc(z.name)}</tspan><tspan x="${z.x}" dy="16" class="heat-zone-value">${visible?pct(s.m,s.a):'No shots'}</tspan>${visible?`<tspan x="${z.x}" dy="14">${s.m}/${s.a}</tspan>`:''}</text>`}).join(''):'<text class="heat-empty-note" x="250" y="300" text-anchor="middle"><tspan x="250">No shots mapped yet.</tspan><tspan x="250" dy="22">Log shots and this court fills in.</tspan></text>';
  $('markers').innerHTML=profileSource==='game-situation'?'':records.filter(profileLocation).map(s=>`<circle cx="${Number(s.x)}" cy="${Number(s.y)}" r="3" fill="${s.makes?'#fff':'#101820'}" stroke="#fff" stroke-width="1"/>`).join('');
  $('courtMode').textContent=`${label} · ${profileAllDates?'Full season':dateRangeLabel('court')} · ${mapped} of ${attempts} attempts mapped${attempts>mapped?' · '+(attempts-mapped)+' without a court zone':''}${attempts?'':'. No shots recorded for this selection.'}`;
  renderProfileGameStats(player?.id||null);
