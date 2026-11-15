@@ -11,7 +11,9 @@ const MIN_CODE_LENGTH=6,MAX_CODE_LENGTH=64,MAX_BATCH=100;
 // Rate limits per minute, checked in three layers. A client that sends its device id gets its own request budget; a client without one
 // shares the smaller legacy budget of its network address. Every network address also has a ceiling, since device ids are self-declared.
 // Finally all writes together are capped by row count, so a batch of 100 shots costs 100 and a flood of batches cannot outrun the cap.
-const LIMIT_GET_DEVICE=40,LIMIT_WRITE_DEVICE=120,LIMIT_GET_IP=120,LIMIT_WRITE_IP=80,LIMIT_GET_IP_CEILING=600,LIMIT_WRITE_IP_CEILING=300,LIMIT_GLOBAL_WRITE_ROWS=3000;
+const LIMIT_GET_DEVICE=40,LIMIT_WRITE_DEVICE=120,LIMIT_GET_IP=120,LIMIT_WRITE_IP=80,LIMIT_GET_NET_CEILING=600,LIMIT_WRITE_NET_ROWS=1500,LIMIT_GLOBAL_WRITE_ROWS=3000;
+// Wrong coach codes are counted separately, per network address and overall, so a self-declared device id cannot speed up guessing.
+const LIMIT_COACH_FAILURES_NET=10,LIMIT_COACH_FAILURES_GLOBAL=60;
 const DEFAULT_NOTE="Public courtside entry";
 const allowedOrigin=(origin:string|null)=>{
  if(origin==="https://ptbasketballhub.netlify.app")return origin;
@@ -34,6 +36,10 @@ const asRecord=(v:unknown):Record<string,unknown>=>v&&typeof v==="object"&&!Arra
 const batchItems=(v:unknown):Record<string,unknown>[]|null=>Array.isArray(v)&&v.length>0&&v.length<=MAX_BATCH?v.map(asRecord):null;
 const ownerHash=(t:string)=>sha256("pt-hub-owner:"+t);
 const sameHash=(a:string,b:string)=>{if(a.length!==b.length)return false;let diff=0;for(let i=0;i<a.length;i++)diff|=a.charCodeAt(i)^b.charCodeAt(i);return diff===0};
+const allow=(bucket:string,limit:number,cost=1)=>db.rpc("pt_hub_allow_request",{p_bucket:bucket,p_limit:limit,p_cost:cost}).then(r=>!r.error&&r.data===true);
+const minuteWindow=()=>new Date(Math.floor(Date.now()/60000)*60000).toISOString();
+// Reads a bucket without charging it, so a locked-out guesser is refused before the code is even compared.
+async function bucketCount(bucket:string){const {data}=await db.from("pt_hub_rate").select("count").eq("bucket",bucket).eq("minute_window",minuteWindow()).maybeSingle();return Number(data?.count||0)}
 async function sha256(text:string){const bytes=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(text));return Array.from(new Uint8Array(bytes),x=>x.toString(16).padStart(2,"0")).join("")}
 async function activePlayer(id:string){const {data}=await db.from("pt_players").select("id").eq("id",id).eq("active",true).maybeSingle();return !!data}
 async function activePlayers(ids:string[]){if(!ids.length)return new Set<string>();const {data}=await db.from("pt_players").select("id").in("id",ids).eq("active",true);return new Set((data||[]).map(row=>row.id as string))}
@@ -76,9 +82,11 @@ const fetchAllSituationShots=(playerId?:string)=>fetchAll<SituationShotRow>("pt_
 type CoachCheck={error:string;status:number}|null;
 const hasCoachCredential=(req:Request)=>!!req.headers.get("x-coach-access-code");
 // Coach writes carry the shared access code. Nobody signs in; the code row is seeded from a function secret and requests never create it.
-async function verifyCoach(req:Request):Promise<CoachCheck>{
+async function verifyCoach(req:Request,network:string):Promise<CoachCheck>{
  const code=req.headers.get("x-coach-access-code")?.trim()||"";
  if(!code)return {error:"Coach access required",status:401};
+ const [netFailures,globalFailures]=await Promise.all([bucketCount("coach-fail:"+network),bucketCount("coach-fail:global")]);
+ if(netFailures>=LIMIT_COACH_FAILURES_NET||globalFailures>=LIMIT_COACH_FAILURES_GLOBAL)return {error:"Too many wrong coach codes. Wait a minute and try again.",status:429};
  const {data:configured,error:accessError}=await db.from("pt_coach_access").select("code_hash").eq("id","primary").maybeSingle();
  if(accessError)return {error:"Coach access unavailable",status:500};
  let storedHash=configured?.code_hash as string|undefined;
@@ -92,7 +100,9 @@ async function verifyCoach(req:Request):Promise<CoachCheck>{
   storedHash=seeded?.code_hash;
   if(!storedHash)return {error:"Coach access could not be initialized",status:500};
  }
- return sameHash(storedHash,await sha256(code))?null:{error:"Coach access denied",status:403};
+ if(sameHash(storedHash,await sha256(code)))return null;
+ await Promise.all([allow("coach-fail:"+network,LIMIT_COACH_FAILURES_NET),allow("coach-fail:global",LIMIT_COACH_FAILURES_GLOBAL)]);
+ return {error:"Coach access denied",status:403};
 }
 Deno.serve(async req=>{
  const origin=allowedOrigin(req.headers.get("origin"));
@@ -107,9 +117,18 @@ Deno.serve(async req=>{
  const write=req.method!=="GET",kind=write?":write":":read";
  const client=perDevice?"device:"+device.toLowerCase():"ip:"+network;
  const clientLimit=perDevice?(write?LIMIT_WRITE_DEVICE:LIMIT_GET_DEVICE):(write?LIMIT_WRITE_IP:LIMIT_GET_IP);
- const allow=(bucket:string,limit:number,cost=1)=>db.rpc("pt_hub_allow_request",{p_bucket:bucket,p_limit:limit,p_cost:cost}).then(r=>!r.error&&r.data===true);
- const [ownOk,networkOk]=await Promise.all([allow(client+kind,clientLimit),perDevice?allow("net:"+network+kind,write?LIMIT_WRITE_IP_CEILING:LIMIT_GET_IP_CEILING):Promise.resolve(true)]);
- if(!ownOk||!networkOk)return fail("Rate limit reached",429);
+ // Writes are parsed before any budget is charged, so the row count is known and an oversized batch is refused for free.
+ let body:Record<string,unknown>={},rows=1;
+ if(write){
+  if(!["POST","PATCH","DELETE"].includes(req.method))return fail("Unknown operation",404);
+  try{const parsed:unknown=await req.json();if(!parsed||typeof parsed!=="object"||Array.isArray(parsed))return fail("Invalid body");body=parsed as Record<string,unknown>}catch{return fail("Invalid JSON body")}
+  const batch=action==="shots"?body.shots:action==="drill_results"?body.results:undefined;
+  if(batch!==undefined){if(!Array.isArray(batch)||!batch.length)return fail("Invalid batch");if(batch.length>MAX_BATCH)return fail("Batch too large",413);rows=batch.length}
+ }
+ // Budgets are charged in order: the client's own, then its network, then the shared row budget. A refused client never touches the shared one.
+ if(!await allow(client+kind,clientLimit))return fail("Rate limit reached",429);
+ if(perDevice&&!await allow("net:"+network+kind,write?LIMIT_WRITE_NET_ROWS:LIMIT_GET_NET_CEILING,write?rows:1))return fail("Rate limit reached",429);
+ if(write&&!await allow("global:write",LIMIT_GLOBAL_WRITE_ROWS,rows))return fail("Rate limit reached",429);
  if(req.method==="GET"&&action==="snapshot"){
  const params=new URL(req.url).searchParams;
  const scope=params.get("scope")||"full",playerId=params.get("player_id")||"";
@@ -146,13 +165,8 @@ Deno.serve(async req=>{
  })():undefined;
  return ok({scope,players:p.data,drills:d.data,shots:s.data,drillResults:r.data,scheduleRecords:player?[]:sc.data,playerGames,gameSituations:g.data,gameSituationShots:gs.data});
  }
- if(!["POST","PATCH","DELETE"].includes(req.method))return fail("Unknown operation",404);
- let body:Record<string,unknown>;
- try{const parsed:unknown=await req.json();if(!parsed||typeof parsed!=="object"||Array.isArray(parsed))return fail("Invalid body");body=parsed as Record<string,unknown>}catch{return fail("Invalid JSON body")}
+ if(!write)return fail("Unknown operation",404);
  const id=str(body.id);
- // The shared write budget is charged per row, after the body is known, so a refused client never consumes it.
- const rows=action==="shots"&&Array.isArray(body.shots)?body.shots.length:action==="drill_results"&&Array.isArray(body.results)?body.results.length:1;
- if(!await allow("global:write",LIMIT_GLOBAL_WRITE_ROWS,Math.min(Math.max(rows,1),MAX_BATCH)))return fail("Rate limit reached",429);
  // Courtside uploads arrive as batches: one request per device per flush instead of one per tap. The single-record forms stay for older cached pages.
  if(req.method==="POST"&&(action==="shots"||action==="shot")){
   const items=action==="shots"?batchItems(body.shots):[body];
@@ -183,7 +197,7 @@ Deno.serve(async req=>{
  if(action==="game_situation_shot"&&req.method==="PATCH"){
   if(!uuid.test(id)||body.undone!==true)return fail("Invalid undo request");
   let query=db.from("pt_game_situation_shots").update({undone:true}).eq("id",id);
-  if(hasCoachCredential(req)){const denied=await verifyCoach(req);if(denied)return fail(denied.error,denied.status)}
+  if(hasCoachCredential(req)){const denied=await verifyCoach(req,network);if(denied)return fail(denied.error,denied.status)}
   else{if(!tokenOk(body.owner_token))return fail("Coach access required",401);query=query.eq("owner_token_hash",await ownerHash(body.owner_token)).gte("recorded_at",new Date(Date.now()-PUBLIC_UNDO_WINDOW_MS).toISOString())}
   const {data,error}=await query.select("id").maybeSingle();
   return error?fail("Game situation undo could not be saved",500):data?ok({ok:true,id}):fail("Shot not found or undo window closed",404);
@@ -191,7 +205,7 @@ Deno.serve(async req=>{
  if(req.method==="DELETE"&&action==="shot"){
   if(!uuid.test(id))return fail("Invalid record");
   let query=db.from("pt_shots").delete().eq("id",id);
-  if(hasCoachCredential(req)){const denied=await verifyCoach(req);if(denied)return fail(denied.error,denied.status)}
+  if(hasCoachCredential(req)){const denied=await verifyCoach(req,network);if(denied)return fail(denied.error,denied.status)}
   else{if(!tokenOk(body.owner_token))return fail("Coach access required",401);query=query.eq("owner_token_hash",await ownerHash(body.owner_token)).gte("created_at",new Date(Date.now()-PUBLIC_SHOT_DELETE_WINDOW_MS).toISOString())}
   const {data,error}=await query.select("id").maybeSingle();
   return error?fail("Removal failed",500):data?ok({ok:true}):fail("Shot not found or undo window closed",404);
@@ -210,7 +224,7 @@ Deno.serve(async req=>{
   if(shots.length){const {error:shotError}=await db.from("pt_game_situation_shots").upsert(shots,{onConflict:"id",ignoreDuplicates:true});if(shotError)return fail("Legacy shots could not be copied",500)}
   return ok({ok:true,id});
  }
- const denied=await verifyCoach(req);
+ const denied=await verifyCoach(req,network);
  if(denied)return fail(denied.error,denied.status);
  if(req.method==="POST"&&action==="coach_code"){
   const code=str(body.code).trim();
