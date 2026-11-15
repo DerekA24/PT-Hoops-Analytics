@@ -10,6 +10,7 @@
 //   node tools/stress-pt-hub.mjs --legacy              # phones without a device id (old cached pages)
 //   node tools/stress-pt-hub.mjs --burst 100           # every phone starts with a 100-shot offline backlog
 //   node tools/stress-pt-hub.mjs --flood               # one abuser rotating device ids as fast as it can
+//   node tools/stress-pt-hub.mjs --spoof               # 60 wrong coach codes with forged X-Forwarded-For; expect most to get 429
 //
 // Set PT_HUB_ORIGIN to the deployed site origin if it is not the default below.
 
@@ -19,7 +20,7 @@ const args = Object.fromEntries(process.argv.slice(2).map((a, i, all) => a.start
 const ENDPOINT = process.env.PT_HUB_ENDPOINT || 'https://jbznaeunhtqgagnqweqw.supabase.co/functions/v1/pt-hub';
 const ORIGIN = process.env.PT_HUB_ORIGIN || 'https://pt-hoops-analytics.vercel.app';
 const PHONES = Number(args.phones || 16), TAPS_PER_MIN = Number(args.taps || 10), SECONDS = Number(args.seconds || 90);
-const BURST = Number(args.burst || 0), LEGACY = !!args.legacy, FLOOD = !!args.flood;
+const BURST = Number(args.burst || 0), LEGACY = !!args.legacy, FLOOD = !!args.flood, SPOOF = !!args.spoof;
 const DRILL = process.env.PT_HUB_DRILL_ID || randomUUID();
 
 const stats = { sent: 0, ok: 0, limited: 0, rejected: 0, other: 0, errors: 0, latencies: [], byPhone: new Map() };
@@ -57,6 +58,17 @@ async function flood() {
   const until = Date.now() + SECONDS * 1000;
   const workers = Array.from({ length: 8 }, async () => { while (Date.now() < until) await send(device(), { shots: Array.from({ length: 100 }, shot) }); });
   await Promise.all(workers);
+}
+
+if (SPOOF) {
+  // Answers one question about the platform: does a client-written X-Forwarded-For get a fresh rate bucket? It must not.
+  const statuses = { 403: 0, 429: 0, other: 0 };
+  for (let i = 0; i < 60; i++) {
+    const res = await fetch(`${ENDPOINT}?action=coach_code`, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: ORIGIN, 'X-PT-Device': device(), 'X-Forwarded-For': `10.${i}.${i}.${i}`, 'X-Real-IP': `10.${i}.${i}.${i}`, 'X-Coach-Access-Code': 'definitely-wrong-' + i }, body: JSON.stringify({ code: 'irrelevant-new-code' }) });
+    statuses[res.status === 403 || res.status === 429 ? res.status : 'other']++;
+  }
+  console.log(JSON.stringify({ spoofed_attempts: 60, wrong_code_403: statuses[403], rate_limited_429: statuses[429], other: statuses.other, verdict: statuses[429] >= 30 ? 'forged addresses share one bucket: safe' : 'forged addresses minted fresh buckets: UNSAFE' }, null, 2));
+  process.exit(statuses[429] >= 30 ? 0 : 1);
 }
 
 console.log(`${FLOOD ? 'FLOOD: 8 workers rotating device ids' : `${PHONES} phones, ${TAPS_PER_MIN} taps/min each${BURST ? `, ${BURST}-shot backlog` : ''}${LEGACY ? ', legacy (no device id)' : ''}`} for ${SECONDS}s against ${ENDPOINT}`);

@@ -7,15 +7,16 @@ const SCHEDULE_RECORD_ID="00000000-0000-0000-0000-000000000001";
 const DAY_MS=864e5,DATE_WINDOW_MS=366*DAY_MS,FUTURE_SLACK_MS=DAY_MS;
 const PUBLIC_UNDO_WINDOW_MS=24*36e5,PUBLIC_SHOT_DELETE_WINDOW_MS=15*6e4;
 const MAX_PAGES=100,PAGE_SIZE=1000,MAX_PAYLOAD_CHARS=200000,MAX_SCHEDULE_ITEMS=400,MAX_ACTIVE_PLAYERS=150,MAX_LABEL_CHARS=80;
-const MIN_CODE_LENGTH=6,MAX_CODE_LENGTH=64,MAX_BATCH=100;
+const MIN_CODE_LENGTH=10,MAX_CODE_LENGTH=64,MAX_BATCH=100;
 // Rate limits per minute, checked in three layers. A client that sends its device id gets its own request budget; a client without one
 // shares the smaller legacy budget of its network address. Every network address also has a ceiling, since device ids are self-declared.
 // Finally all writes together are capped by row count, so a batch of 100 shots costs 100 and a flood of batches cannot outrun the cap.
 const LIMIT_GET_DEVICE=40,LIMIT_WRITE_DEVICE=120,LIMIT_GET_IP=120,LIMIT_WRITE_IP=80,LIMIT_GET_NET_CEILING=600,LIMIT_WRITE_NET_ROWS=1500,LIMIT_GLOBAL_WRITE_ROWS=3000;
 // Coach code attempts are charged atomically per network address before the code is compared, so a self-declared device id
-// cannot speed up guessing and a burst of parallel guesses cannot slip past the counter. There is no shared attempt budget,
-// so an attacker elsewhere cannot lock the real coach out. 30 a minute covers a coach's busiest roster edit.
-const LIMIT_COACH_ATTEMPTS_NET=30,LIMIT_COACH_ATTEMPTS_GLOBAL=600,NEW_CODE_MIN_LENGTH=10;
+// cannot speed up guessing and a burst of parallel guesses cannot slip past the counter. There is deliberately no shared
+// attempt budget: one would let a guesser anywhere lock the real coach out. Strength against many networks guessing at once
+// comes from the code itself, which must be at least MIN_CODE_LENGTH characters when seeded or changed.
+const LIMIT_COACH_ATTEMPTS_NET=30;
 const DEFAULT_NOTE="Public courtside entry";
 const allowedOrigin=(origin:string|null)=>{
  if(origin==="https://ptbasketballhub.netlify.app")return origin;
@@ -38,7 +39,8 @@ const deviceOk=(t:string)=>/^[0-9a-f]{32}$/i.test(t);
 // IPv6 callers are grouped by /64, since one household or phone rotates freely inside that prefix.
 function clientNetwork(req:Request){
  const forwarded=req.headers.get("x-forwarded-for")?.split(",").map(s=>s.trim()).filter(Boolean)||[];
- const ip=req.headers.get("cf-connecting-ip")?.trim()||forwarded.at(-1)||"unknown";
+ const raw=req.headers.get("cf-connecting-ip")?.trim()||forwarded.at(-1)||"unknown";
+ const ip=raw.replace(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i,"$1");
  if(!ip.includes(":"))return ip;
  const [head,tail=""]=ip.split("::"),left=head.split(":").filter(Boolean),right=tail.split(":").filter(Boolean);
  const groups=[...left,...Array(Math.max(0,8-left.length-right.length)).fill("0"),...right];
@@ -95,8 +97,7 @@ const hasCoachCredential=(req:Request)=>!!req.headers.get("x-coach-access-code")
 async function verifyCoach(req:Request,network:string):Promise<CoachCheck>{
  const code=req.headers.get("x-coach-access-code")?.trim()||"";
  if(!code)return {error:"Coach access required",status:401};
- // Per network first, then a high overall backstop against many networks guessing at once. Both are charged before the compare.
- if(!await allow("coach-try:"+network,LIMIT_COACH_ATTEMPTS_NET)||!await allow("coach-try:global",LIMIT_COACH_ATTEMPTS_GLOBAL))return {error:"Too many coach code attempts. Wait a minute and try again.",status:429};
+ if(!await allow("coach-try:"+network,LIMIT_COACH_ATTEMPTS_NET))return {error:"Too many coach code attempts from this network. Wait a minute and try again.",status:429};
  const {data:configured,error:accessError}=await db.from("pt_coach_access").select("code_hash").eq("id","primary").maybeSingle();
  if(accessError)return {error:"Coach access unavailable",status:500};
  let storedHash=configured?.code_hash as string|undefined;
@@ -235,7 +236,7 @@ Deno.serve(async req=>{
  if(denied)return fail(denied.error,denied.status);
  if(req.method==="POST"&&action==="coach_code"){
   const code=str(body.code).trim();
-  if(code.length<NEW_CODE_MIN_LENGTH||code.length>MAX_CODE_LENGTH)return fail("New code must be "+NEW_CODE_MIN_LENGTH+" to "+MAX_CODE_LENGTH+" characters");
+  if(code.length<MIN_CODE_LENGTH||code.length>MAX_CODE_LENGTH)return fail("New code must be "+MIN_CODE_LENGTH+" to "+MAX_CODE_LENGTH+" characters");
   const {error}=await db.from("pt_coach_access").update({code_hash:await sha256(code),updated_at:new Date().toISOString()}).eq("id","primary");
   return error?fail("Coach code could not be changed",500):ok({ok:true});
  }
