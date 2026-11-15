@@ -12,8 +12,10 @@ const MIN_CODE_LENGTH=6,MAX_CODE_LENGTH=64,MAX_BATCH=100;
 // shares the smaller legacy budget of its network address. Every network address also has a ceiling, since device ids are self-declared.
 // Finally all writes together are capped by row count, so a batch of 100 shots costs 100 and a flood of batches cannot outrun the cap.
 const LIMIT_GET_DEVICE=40,LIMIT_WRITE_DEVICE=120,LIMIT_GET_IP=120,LIMIT_WRITE_IP=80,LIMIT_GET_NET_CEILING=600,LIMIT_WRITE_NET_ROWS=1500,LIMIT_GLOBAL_WRITE_ROWS=3000;
-// Wrong coach codes are counted separately, per network address and overall, so a self-declared device id cannot speed up guessing.
-const LIMIT_COACH_FAILURES_NET=10,LIMIT_COACH_FAILURES_GLOBAL=60;
+// Coach code attempts are charged atomically per network address before the code is compared, so a self-declared device id
+// cannot speed up guessing and a burst of parallel guesses cannot slip past the counter. There is no shared attempt budget,
+// so an attacker elsewhere cannot lock the real coach out. 30 a minute covers a coach's busiest roster edit.
+const LIMIT_COACH_ATTEMPTS_NET=30;
 const DEFAULT_NOTE="Public courtside entry";
 const allowedOrigin=(origin:string|null)=>{
  if(origin==="https://ptbasketballhub.netlify.app")return origin;
@@ -37,9 +39,6 @@ const batchItems=(v:unknown):Record<string,unknown>[]|null=>Array.isArray(v)&&v.
 const ownerHash=(t:string)=>sha256("pt-hub-owner:"+t);
 const sameHash=(a:string,b:string)=>{if(a.length!==b.length)return false;let diff=0;for(let i=0;i<a.length;i++)diff|=a.charCodeAt(i)^b.charCodeAt(i);return diff===0};
 const allow=(bucket:string,limit:number,cost=1)=>db.rpc("pt_hub_allow_request",{p_bucket:bucket,p_limit:limit,p_cost:cost}).then(r=>!r.error&&r.data===true);
-const minuteWindow=()=>new Date(Math.floor(Date.now()/60000)*60000).toISOString();
-// Reads a bucket without charging it, so a locked-out guesser is refused before the code is even compared.
-async function bucketCount(bucket:string){const {data}=await db.from("pt_hub_rate").select("count").eq("bucket",bucket).eq("minute_window",minuteWindow()).maybeSingle();return Number(data?.count||0)}
 async function sha256(text:string){const bytes=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(text));return Array.from(new Uint8Array(bytes),x=>x.toString(16).padStart(2,"0")).join("")}
 async function activePlayer(id:string){const {data}=await db.from("pt_players").select("id").eq("id",id).eq("active",true).maybeSingle();return !!data}
 async function activePlayers(ids:string[]){if(!ids.length)return new Set<string>();const {data}=await db.from("pt_players").select("id").in("id",ids).eq("active",true);return new Set((data||[]).map(row=>row.id as string))}
@@ -85,8 +84,7 @@ const hasCoachCredential=(req:Request)=>!!req.headers.get("x-coach-access-code")
 async function verifyCoach(req:Request,network:string):Promise<CoachCheck>{
  const code=req.headers.get("x-coach-access-code")?.trim()||"";
  if(!code)return {error:"Coach access required",status:401};
- const [netFailures,globalFailures]=await Promise.all([bucketCount("coach-fail:"+network),bucketCount("coach-fail:global")]);
- if(netFailures>=LIMIT_COACH_FAILURES_NET||globalFailures>=LIMIT_COACH_FAILURES_GLOBAL)return {error:"Too many wrong coach codes. Wait a minute and try again.",status:429};
+ if(!await allow("coach-try:"+network,LIMIT_COACH_ATTEMPTS_NET))return {error:"Too many coach code attempts from this network. Wait a minute and try again.",status:429};
  const {data:configured,error:accessError}=await db.from("pt_coach_access").select("code_hash").eq("id","primary").maybeSingle();
  if(accessError)return {error:"Coach access unavailable",status:500};
  let storedHash=configured?.code_hash as string|undefined;
@@ -100,9 +98,7 @@ async function verifyCoach(req:Request,network:string):Promise<CoachCheck>{
   storedHash=seeded?.code_hash;
   if(!storedHash)return {error:"Coach access could not be initialized",status:500};
  }
- if(sameHash(storedHash,await sha256(code)))return null;
- await Promise.all([allow("coach-fail:"+network,LIMIT_COACH_FAILURES_NET),allow("coach-fail:global",LIMIT_COACH_FAILURES_GLOBAL)]);
- return {error:"Coach access denied",status:403};
+ return sameHash(storedHash,await sha256(code))?null:{error:"Coach access denied",status:403};
 }
 Deno.serve(async req=>{
  const origin=allowedOrigin(req.headers.get("origin"));
