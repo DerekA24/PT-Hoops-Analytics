@@ -184,21 +184,26 @@ const profileHeatColors=['#dc2626','#f97316','#facc15','#a3e635','#16a34a'];
 const profileHeatThresholds={rim:[45,50,60,65],floaters:[30,35,45,50],midCornerLeft:[30,35,45,50],midCornerRight:[30,35,45,50],midWingLeft:[25,30,40,45],midWingRight:[25,30,40,45],midKey:[25,30,40,45],cornerLeft:[20,25,35,40],cornerRight:[20,25,35,40],wingLeft:[20,25,35,40],wingRight:[20,25,35,40],slotLeft:[20,25,35,40],slotRight:[20,25,35,40],top:[20,25,35,40],free:[50,60,70,80]};
 const profilePracticeHeatThresholds={rim:[65,70,80,85],floaters:[40,45,55,60],midCornerLeft:[40,45,55,60],midCornerRight:[40,45,55,60],midWingLeft:[35,40,50,55],midWingRight:[35,40,50,55],midKey:[35,40,50,55],cornerLeft:[30,35,45,50],cornerRight:[30,35,45,50],wingLeft:[30,35,45,50],wingRight:[30,35,45,50],slotLeft:[30,35,45,50],slotRight:[30,35,45,50],top:[30,35,45,50],free:[55,65,75,85]};
 const profilePracticeRatingAverages={rim:75,floaters:50,midCornerLeft:50,midCornerRight:50,midWingLeft:45,midWingRight:45,midKey:45,cornerLeft:42,cornerRight:42,wingLeft:40,wingRight:40,slotLeft:38,slotRight:38,top:38,free:70};
+const profileGameHeatThresholds={rim:[68,75],floaters:[68,75],midCornerLeft:[40,50],midCornerRight:[40,50],midWingLeft:[40,50],midWingRight:[40,50],midKey:[40,50],cornerLeft:[33,38],cornerRight:[33,38],wingLeft:[33,38],wingRight:[33,38],slotLeft:[33,38],slotRight:[33,38],top:[33,38],free:[70,80]};
 function practiceBenchmark(shot){const average=profilePracticeRatingAverages[shot.zone];return average===undefined?null:average/100}
 function practiceShootingRating(makes,expected,attempts){return attempts?100+100*(makes-expected)/attempts:null}
 const profileHeatStandardsZones=[['Finishing','rim'],['Floaters','floaters'],['Midrange Corner','midCornerLeft'],['Midrange Wing','midWingLeft'],['Midrange Key','midKey'],['Corner 3','cornerLeft'],['Wing 3','wingLeft'],['Slot 3','slotLeft'],['Top of Key 3','top'],['Free Throws','free']];
-function profileCurrentHeatThresholds(){return profileSource==='practice'?profilePracticeHeatThresholds:profileHeatThresholds}
+function profileCurrentHeatThresholds(){return profileSource==='practice'?profilePracticeHeatThresholds:profileSource==='game'?profileGameHeatThresholds:profileHeatThresholds}
 function profileColor(makes,attempts,zone){
  if(!attempts)return '#25313d';
  const thresholds=profileCurrentHeatThresholds()[zone];if(!thresholds)return '#25313d';
+ if(profileSource==='game')return profileHeatColors[100*makes<thresholds[0]*attempts?0:100*makes<thresholds[1]*attempts?2:4];
  // Compare unrounded percentages so values below a cutoff stay in their band.
  const band=thresholds.filter(cutoff=>100*makes>=cutoff*attempts).length;
  return profileHeatColors[band];
 }
 function renderProfileHeatStandards(){
  const thresholds=profileCurrentHeatThresholds();
+ const game=profileSource==='game',head=$('heatStandardsBody')?.closest('table')?.querySelector('thead');
+ if(head)head.innerHTML=game?'<tr><th>Zone</th><th>Red</th><th>Yellow</th><th>Green</th></tr>':'<tr><th>Zone</th><th>Red</th><th>Orange</th><th>Yellow</th><th>Light Green</th><th>Green</th></tr>';
  $('heatStandardsBody').innerHTML=profileHeatStandardsZones.map(([name,zone])=>{
   const cutoffs=thresholds[zone];
+  if(game)return `<tr><td>${name}</td><td>&lt;${cutoffs[0]}%</td><td>${cutoffs[0]}-${cutoffs[1]-1}%</td><td>${cutoffs[1]}+%</td></tr>`;
   return `<tr><td>${name}</td><td>&lt;${cutoffs[0]}%</td>${cutoffs.slice(0,3).map((lower,index)=>`<td>${lower}-${cutoffs[index+1]-1}%</td>`).join('')}<td>${cutoffs[3]}+%</td></tr>`;
  }).join('');
 }
@@ -267,6 +272,7 @@ function renderProfile(){
  const team=profileIsTeam(),player=team?null:state.players.find(p=>p.id===$('profilePlayer').value),label=profileSourceLabel();
  $('profileIdentity').textContent=team?'Entire team · All athletes':player?`#${player.number} ${player.name}${player.position?' · '+player.position:''}`:'Choose a player to see their results.';
  $('profileChartTitle').textContent=label+' Shot Heat Chart';
+ document.querySelector('.heat-legend')?.classList.toggle('game-heat-legend',profileSource==='game');
  renderProfileHeatStandards();
  for(const [source,,...ids] of profileSources)for(const id of ids){const button=$(id);if(button){button.classList.toggle('active',source===profileSource);button.setAttribute('aria-pressed',String(source===profileSource))}}
  $('allDates').classList.toggle('active',profileAllDates);$('oneDate').classList.toggle('active',!profileAllDates);

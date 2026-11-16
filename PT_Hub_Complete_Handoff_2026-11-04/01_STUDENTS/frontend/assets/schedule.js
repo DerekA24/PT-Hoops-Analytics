@@ -26,19 +26,7 @@
  window.addEventListener('pagehide',()=>{editPermit=false;hudlPermit=false;schedulePermit=false;for(const id of ['scheduleGameDialog','hudlImportDialog'])if($(id).open)$(id).close();if(resolveCoach)finishCoach(false);syncCoachTools()});
  $('scheduleCoachToggle').onclick=async()=>{if(window.PTCoachAccess?.isUnlocked?.()){window.PTCoachAccess.lock?.();syncCoachTools();return}if(await requireCoach('Enter the coach access code to show coach tools.'))syncCoachTools()};
  syncCoachTools();
- function gameEntries(){
-  const used=new Set(),scheduleIds=new Set(state.schedule.map(s=>s.id)),entries=state.schedule.map(s=>{
-   const game=state.games.find(g=>!used.has(g.id)&&(g.scheduleId===s.id||g.id===s.id))||state.games.find(g=>!used.has(g.id)&&sameGame(g,s)&&(!g.scheduleId||!scheduleIds.has(g.scheduleId)));
-   if(game)used.add(game.id);return {key:'s:'+s.id,schedule:s,game};
-  });
-  for(const game of state.games)if(!used.has(game.id))entries.push({key:'g:'+game.id,game,schedule:null});
-  const distinct=new Map();
-  for(const entry of entries){
-   const item=entry.schedule||entry.game,key=[item.date||'',norm(item.opponent),item.time||'',item.location||''].join('|'),prior=distinct.get(key);
-   if(!prior||entry.game&&!prior.game)distinct.set(key,entry);
-  }
-  return [...distinct.values()].sort((a,b)=>String((a.schedule||a.game).date||'').localeCompare(String((b.schedule||b.game).date||''))||String((a.schedule||a.game).time||'').localeCompare(String((b.schedule||b.game).time||'')));
- }
+ function gameEntries(){return window.PTScheduleGameEntries()}
  const findEntry=key=>gameEntries().find(entry=>entry.key===key);
  const isPlayed=entry=>!!(entry.game?.played||entry.game?.final||entry.game?.playerStats?.length||entry.game?.events?.length||entry.schedule?.played);
  function hudlLink(value){try{const url=new URL(value);return url.protocol==='https:'&&(url.hostname==='hudl.com'||url.hostname.endsWith('.hudl.com'))?url.href:''}catch{return ''}}
