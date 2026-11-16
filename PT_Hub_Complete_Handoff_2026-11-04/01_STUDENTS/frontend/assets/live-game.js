@@ -16,12 +16,7 @@
  const normalize=value=>String(value||'').toLowerCase().replace(/[^a-z0-9]/g,'');
  function entries(){
   if(situation)return [{key:'new',schedule:{date:today(),opponent:'White'},game:null},...state.gameSituations.slice().sort((a,b)=>String(b.createdAt||b.date).localeCompare(String(a.createdAt||a.date))).map(game=>({key:'g:'+game.id,game,schedule:null}))];
-  const used=new Set(),list=state.schedule.map(schedule=>{
-   const game=state.games.find(g=>!used.has(g.id)&&(g.scheduleId===schedule.id||g.id===schedule.id||g.date===schedule.date&&normalize(g.opponent)===normalize(schedule.opponent)));
-   if(game)used.add(game.id);return {key:'s:'+schedule.id,schedule,game};
-  });
-  for(const game of state.games)if(!used.has(game.id))list.push({key:'g:'+game.id,game,schedule:null});
-  return list.sort((a,b)=>String((a.schedule||a.game).date||'').localeCompare(String((b.schedule||b.game).date||'')));
+  return window.PTScheduleGameEntries();
  }
  const selectedEntry=()=>entries().find(e=>e.key===selection);
  function ensureGame(){
