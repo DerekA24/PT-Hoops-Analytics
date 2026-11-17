@@ -16,25 +16,24 @@
   const rows=team.zones.map(z=>`<tr><td>${z.label}</td><td>${z.made}/${z.attempts}</td><td>${z.attempts?(100*z.made/z.attempts).toFixed(1)+'%':'--'}</td><td>${z.threeAttempts||'--'}</td></tr>`).join('');
   return `<div class="report-box"><h2 class="report-section-title ${opponent?'opponent':''}">${escape(title)} - Shot Chart</h2>${svg}<table class="report-table"><thead><tr><th>Zone</th><th>FG</th><th>FG%</th><th>3PA</th></tr></thead><tbody>${rows}</tbody></table><p class="report-chart-note">${team.shots.length} located field-goal attempts.${team.unlocated?' '+team.unlocated+' attempts have no saved location.':''}${!team.shots.length?' No located field goals recorded for this team.':''} Free throws are excluded from the court plot.</p></div>`;
  }
- function showInsights(ids,source){
+ function showInsights(ids){
   const chosen=ids.map(id=>report.facts.find(f=>f.id===id)).filter(Boolean);
   for(const fact of report.facts)if(chosen.length<3&&!chosen.includes(fact))chosen.push(fact);
   $('reportInsights').innerHTML=chosen.length?chosen.slice(0,3).map(f=>`<article><h3>${escape(f.title)}</h3><p>${escape(f.text)}</p></article>`).join(''):'<article><h3>More data needed</h3><p>Record game events to generate statistical insights.</p></article>';
-  $('reportInsightSource').textContent=source;
  }
- function unavailable(){clearTimeout(timer);worker?.terminate();worker=null;$('reportStatus').textContent='The insights model could not finish. Verified stat-based insights are shown; the report can still be printed.';$('reportRetry').hidden=false;showInsights([],'Stat-based summary - model unavailable')}
+ function unavailable(){clearTimeout(timer);worker?.terminate();worker=null;$('reportStatus').textContent='The insights model could not finish. Verified stat-based insights are shown; the report can still be printed.';$('reportRetry').hidden=false;showInsights([])}
  function generateInsights(){
   if(report.facts.length<3){$('reportStatus').textContent='Report ready. More recorded statistics are needed for model-prioritized insights.';return}
   worker?.terminate();$('reportRetry').hidden=true;
   $('reportStatus').textContent='Preparing quick insights. First use downloads a small open-weight model; game data stays on this device.';
-  showInsights([],'Verified statistics - model loading');
+  showInsights([]);
   try{
    worker=new Worker(new URL('report-insights-worker.js?v=1',document.currentScript?.src||new URL('assets/game-report.js',location.href)),{type:'module'});
    timer=setTimeout(unavailable,180000);
    worker.onmessage=({data})=>{
     if(data.type==='status')$('reportStatus').textContent=data.text;
     if(data.type==='result'){
-     clearTimeout(timer);showInsights(data.ids,'AI-prioritized with SmolLM2-135M (open weights)');$('reportStatus').textContent='Report ready. Quick insights were prioritized on this device from verified statistics.';
+     clearTimeout(timer);showInsights(data.ids);$('reportStatus').textContent='Report ready. Quick insights were prioritized on this device from verified statistics.';
      worker.terminate();worker=null;
     }
     if(data.type==='error')unavailable();
@@ -54,8 +53,8 @@
   const teamRows=labels.map(([label,key])=>`<tr><td>${label}</td><td>${['fg','three','ft'].includes(key)?ratio(report.pt.totals[key]):value(report.pt.totals[key])}</td><td>${['fg','three','ft'].includes(key)?ratio(report.opponent.totals[key]):value(report.opponent.totals[key])}</td></tr>`).join('');
   const banner=`<div class="report-score"><h1>${escape(homeName)}</h1><strong>${value(report.ptScore)} - ${value(report.opponentScore)}</strong><h2>${escape(report.opponentName)}</h2></div>`;
   const footer=page=>`<footer class="report-page-footer"><span>Park Tudor Basketball | ${escape(report.date||'Date not set')}</span><span>${page} / 2</span></footer>`;
-  $('reportRoot').innerHTML=`<section class="report-sheet">${banner}<p class="report-meta">${escape(report.date||'Game date not set')} | Recorded game snapshot | Generated ${escape(new Date(snapshot.createdAt||report.createdAt).toLocaleString())}</p><div class="report-top-grid"><div class="report-box"><h2 class="report-section-title">Team Stats</h2><table class="report-table team-stats"><thead><tr><th></th><th>${homeName==='Park Tudor'?'PT':escape(homeName)}</th><th>${report.opponentName==='White'?'White':'OPP'}</th></tr></thead><tbody>${teamRows}</tbody></table></div><div>${box(report.pt,homeName)}${box(report.opponent,report.opponentName,true)}</div></div><p class="report-data-note">Includes the selected game's recorded events and any imported player totals. Live events entered after an import supplement those totals. Missing statistics are shown as --. Second-chance points require an explicit tag and are not inferred from rebound timing.</p><div class="report-insights"><div class="report-insights-heading"><h2>QUICK INSIGHTS</h2><small id="reportInsightSource"></small></div><div id="reportInsights" class="report-insight-grid"></div></div><p class="report-footnote">Insights select from calculated facts; they do not invent possessions, scoring sequences, or missing statistics. The report is a snapshot; regenerate it after entering additional data.</p>${footer(1)}</section><section class="report-sheet charts"><div class="report-chart-grid">${court(report.pt,homeName)}${court(report.opponent,report.opponentName,true)}</div><div class="shot-key"><span class="made">&#9679; Made</span><span class="missed">&#215; Missed</span></div><p class="report-data-note">Shot charts use saved field-goal locations from live events. Imported box scores do not supply locations. Zone totals describe only the plotted attempts, so they can differ from complete game shooting totals.</p>${footer(2)}</section>`;
-  showInsights([],'Verified stat-based summary');generateInsights();
+  $('reportRoot').innerHTML=`<section class="report-sheet">${banner}<p class="report-meta">${escape(report.date||'Game date not set')} | Recorded game snapshot | Generated ${escape(new Date(snapshot.createdAt||report.createdAt).toLocaleString())}</p><div class="report-top-grid"><div class="report-box"><h2 class="report-section-title">Team Stats</h2><table class="report-table team-stats"><thead><tr><th></th><th>${homeName==='Park Tudor'?'PT':escape(homeName)}</th><th>${report.opponentName==='White'?'White':'OPP'}</th></tr></thead><tbody>${teamRows}</tbody></table></div><div>${box(report.pt,homeName)}${box(report.opponent,report.opponentName,true)}</div></div><p class="report-data-note">Includes the selected game's recorded events and any imported player totals. Live events entered after an import supplement those totals. Missing statistics are shown as --. Second-chance points require an explicit tag and are not inferred from rebound timing.</p><div class="report-insights"><div class="report-insights-heading"><h2>QUICK INSIGHTS</h2></div><div id="reportInsights" class="report-insight-grid"></div></div>${footer(1)}</section><section class="report-sheet charts"><div class="report-chart-grid">${court(report.pt,homeName)}${court(report.opponent,report.opponentName,true)}</div>${footer(2)}</section>`;
+  showInsights([]);generateInsights();
  }catch(error){
   document.body.classList.add('report-missing');
   $('reportRoot').innerHTML=`<header class="report-missing-header"><h1><span class="red">PT</span> BASKETBALL ANALYTICS <span class="red">HUB</span></h1></header><div class="report-error"><h2>Game report unavailable</h2><p>${escape(error.message)}</p><p>Generate a new report from Live Game.</p><a class="report-back-link" href="live-game.html">Back to Live Game</a></div>`;
