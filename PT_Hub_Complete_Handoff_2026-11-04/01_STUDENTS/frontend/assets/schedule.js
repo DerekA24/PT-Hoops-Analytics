@@ -26,7 +26,7 @@
  window.addEventListener('pagehide',()=>{editPermit=false;hudlPermit=false;schedulePermit=false;for(const id of ['scheduleGameDialog','hudlImportDialog'])if($(id).open)$(id).close();if(resolveCoach)finishCoach(false);syncCoachTools()});
  $('scheduleCoachToggle').onclick=async()=>{if(window.PTCoachAccess?.isUnlocked?.()){window.PTCoachAccess.lock?.();syncCoachTools();return}if(await requireCoach('Enter the coach access code to show coach tools.'))syncCoachTools()};
  syncCoachTools();
- function gameEntries(){return window.PTScheduleGameEntries()}
+ function gameEntries(){return window.PTScheduleGameEntries().filter(entry=>entry.game?.testOnly!==true)}
  const findEntry=key=>gameEntries().find(entry=>entry.key===key);
  const isPlayed=entry=>!!(entry.game?.played||entry.game?.final||entry.game?.playerStats?.length||entry.game?.events?.length||entry.schedule?.played);
  function hudlLink(value){try{const url=new URL(value);return url.protocol==='https:'&&(url.hostname==='hudl.com'||url.hostname.endsWith('.hudl.com'))?url.href:''}catch{return ''}}
@@ -60,7 +60,7 @@
  }
  function ensureGame(entry){
   if(entry.game)return entry.game;
-  const item=entry.schedule,game={id:uid(),scheduleId:item.id,date:item.date,opponent:item.opponent,time:item.time||'',location:item.location||'Home',hudlUrl:item.hudlUrl||'',events:[]};state.games.push(game);return game;
+  const item=entry.schedule,game={id:uid(),scheduleId:item.id,date:item.date,opponent:item.opponent,time:item.time||'',location:item.location||'Home',hudlUrl:item.hudlUrl||'',events:[],...(item.testOnly===true?{testOnly:true}:{})};state.games.push(game);return game;
  }
  $('scheduleGameForm').onsubmit=e=>{
   e.preventDefault();if(!editPermit){$('scheduleEditorError').textContent='Coach access is required. Close this window and try again.';return}const key=$('scheduleEditKey').value,entry=key?findEntry(key):null;
