@@ -14,6 +14,13 @@
  if(situation&&!state.gameSituations.some(session=>'g:'+session.id===selection&&session.date===today()))selection='new';
  const points=event=>({TWO_M:2,THREE_M:3,FT_M:1})[event.type]||0;
  const normalize=value=>String(value||'').toLowerCase().replace(/[^a-z0-9]/g,'');
+ function displayGameTime(value){
+  const text=String(value||'').trim(),match=/^(\d{1,2}):(\d{2})(?::\d{2})?$/.exec(text);
+  if(!match)return text;
+  const hour=Number(match[1]),minute=Number(match[2]);
+  if(hour>23||minute>59)return text;
+  return `${hour%12||12}:${match[2]} ${hour>=12?'PM':'AM'}`;
+ }
  function entries(){
   if(situation)return [{key:'new',schedule:{date:today(),opponent:'White'},game:null},...state.gameSituations.slice().sort((a,b)=>String(b.createdAt||b.date).localeCompare(String(a.createdAt||a.date))).map(game=>({key:'g:'+game.id,game,schedule:null}))];
   return window.PTScheduleGameEntries();
@@ -41,7 +48,7 @@
  function updateDot(){for(const id of ['liveCourtDot','liveCourtDotHalo']){const dot=$(id);dot.setAttribute('cx',String(point.x));dot.setAttribute('cy',String(point.y))}$('liveLocationText').textContent=`${point.x}, ${point.y}`}
  function render(){
   const list=entries();if(!list.some(e=>e.key===selection))selection=situation?'new':'';
-  if($('liveGameSelector')){$('liveGameSelector').innerHTML=situation?list.map(entry=>`<option value="${esc(entry.key)}">${entry.key==='new'?'New Red vs White session':esc(entry.game.date)+' - Red vs White #'+(state.gameSituations.indexOf(entry.game)+1)+' - '+esc(new Date(entry.game.createdAt||entry.game.date).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}))}</option>`).join(''):'<option value="">Select a game</option>'+list.map(entry=>{const item=entry.schedule||entry.game;return `<option value="${esc(entry.key)}">${esc(item.date||'Date TBD')} · ${item.location==='Away'?'@':'vs'} ${esc(item.opponent||'Opponent TBD')}${item.time?' · '+esc(item.time):''}</option>`}).join('');$('liveGameSelector').value=selection;}
+  if($('liveGameSelector')){$('liveGameSelector').innerHTML=situation?list.map(entry=>`<option value="${esc(entry.key)}">${entry.key==='new'?'New Red vs White session':esc(entry.game.date)+' - Red vs White #'+(state.gameSituations.indexOf(entry.game)+1)+' - '+esc(new Date(entry.game.createdAt||entry.game.date).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}))}</option>`).join(''):'<option value="">Select a game</option>'+list.map(entry=>{const item=entry.schedule||entry.game;return `<option value="${esc(entry.key)}">${esc(item.date||'Date TBD')} · ${item.location==='Away'?'@':'vs'} ${esc(item.opponent||'Opponent TBD')}${item.time?' · '+esc(displayGameTime(item.time)):''}</option>`}).join('');$('liveGameSelector').value=selection;}
   const entry=selectedEntry(),game=entry?.game,opponent=situation?'White':(entry?.schedule||game)?.opponent||'Opponent',active=activePlayer(game);
   if(restoreTeam){tabletTeam=game?.liveActive?.team||'pt';restoreTeam=false}
   $('liveTabletOpponent').textContent=opponent;$('liveScoreOpponent').textContent=opponent;$('livePtScore').textContent=score(game,'pt');$('liveOpponentScore').textContent=score(game,'opponent');
