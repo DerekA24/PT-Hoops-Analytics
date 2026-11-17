@@ -20,6 +20,7 @@ const profileZones=[
  {id:'top',name:'Top of Key 3',x:250,y:394,path:'M174 352H326V458H174Z'}
 ];
 function profileShotSource(shot){if([shot.shotContext,shot.context,shot.source].includes('game-situation'))return 'game-situation';return shot.shotContext==='game'||shot.context==='game'||shot.source==='game'||shot.gameId?'game':'practice'}
+function profileIsTestGameShot(shot){return !!shot.gameId&&state.games.some(game=>game.id===shot.gameId&&game.testOnly===true)}
 function profileLocation(shot){return shot.x!==null&&shot.y!==null&&shot.x!==''&&shot.y!==''&&Number.isFinite(Number(shot.x))&&Number.isFinite(Number(shot.y))&&Number(shot.x)>=12&&Number(shot.x)<=488&&Number(shot.y)>=12&&Number(shot.y)<=458}
 function profileZone(shot){
  const name=String(shot.category||shot.type||shot.drill||'').toLowerCase();
@@ -116,10 +117,10 @@ function profileRecords({allDates=profileAllDates,source=profileSource,player=pr
   if(!Number.isFinite(attempts)||!Number.isFinite(makes)||attempts<=0||makes<0||makes>attempts)return;
   records.push({...shot,date,makes,attempts,kind,zone:profileZone(shot)});
  };
- const shooting=state.shooting.filter(s=>profileShotSource(s)===source);
+ const shooting=state.shooting.filter(s=>profileShotSource(s)===source&&!profileIsTestGameShot(s));
  for(const shot of shooting)add(shot,'set',shot.date);
  const linked=new Set(shooting.map(s=>s.id));
- for(const shot of state.court){if(profileShotSource(shot)!==source||shot.shotId&&linked.has(shot.shotId))continue;add(shot,'court',shot.date)}
+ for(const shot of state.court){if(profileShotSource(shot)!==source||profileIsTestGameShot(shot)||shot.shotId&&linked.has(shot.shotId))continue;add(shot,'court',shot.date)}
  if(source==='game-situation')for(const shot of state.gameSituationShots||[]){
   if(shot.undone||!/^(TWO|THREE|FT)_[MX]$/.test(shot.type||''))continue;
   const zone=profileZone(shot),category=profileZones.find(z=>z.id===zone)?.name||(shot.type.startsWith('THREE')?'Game Situation 3PT':shot.type.startsWith('FT')?'Free Throws':'Game Situation 2PT');
@@ -134,6 +135,7 @@ function profileRecords({allDates=profileAllDates,source=profileSource,player=pr
   }
  }
  if(source==='game')for(const game of state.games){
+  if(game.testOnly===true)continue;
   const boxScores=Array.isArray(game.playerStats)?game.playerStats:[],covered=new Set(),didNotPlay=new Set();
   const pairs=[['twoMade','twoAttempts','TWO','Game 2PT'],['threeMade','threeAttempts','THREE','Game 3PT'],['ftMade','ftAttempts','FT','Free Throws']];
   for(const row of boxScores){
@@ -210,7 +212,7 @@ function renderProfileHeatStandards(){
 function profileGameStats(games,playerId=null,allDates=profileAllDates){
  const api=window.PTGameStatTotals;
  const totals=new Map(api.stats.map(stat=>[stat.key,null]));
- const eligible=games.filter(game=>(game.played||game.final||game.events?.length||game.playerStats?.length)&&(allDates||dateInRange(game.date,'court')));
+ const eligible=games.filter(game=>game.testOnly!==true&&(game.played||game.final||game.events?.length||game.playerStats?.length)&&(allDates||dateInRange(game.date,'court')));
  const boards=api.totalsFor(eligible,isTestPlayerId);
  for(const stat of api.stats){
   const rows=playerId?[boards.get(stat.key).get(playerId)].filter(Boolean):[...boards.get(stat.key).values()];

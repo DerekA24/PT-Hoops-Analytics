@@ -23,7 +23,7 @@
   const entry=selectedEntry();if(!entry)return null;
   if(entry.game)return entry.game;
   if(situation){const game={id:uid(),date:today(),createdAt:new Date().toISOString(),homeTeamName:'Red',opponent:'White',opponentPlayers:[],shotContext:'game-situation',events:[],played:false};state.gameSituations.push(game);selection='g:'+game.id;localStorage.setItem(selectionKey,selection);return game}
-  const item=entry.schedule,game={id:uid(),scheduleId:item.id,date:item.date,opponent:item.opponent,time:item.time||'',location:item.location||'Home',hudlUrl:item.hudlUrl||'',events:[],played:false};state.games.push(game);return game;
+  const item=entry.schedule,game={id:uid(),scheduleId:item.id,date:item.date,opponent:item.opponent,time:item.time||'',location:item.location||'Home',hudlUrl:item.hudlUrl||'',events:[],played:false,...(item.testOnly===true?{testOnly:true}:{})};state.games.push(game);return game;
  }
  function roster(game,team){return situation||team==='pt'?state.players:Array.isArray(game?.opponentPlayers)?game.opponentPlayers:[]}
  function slots(game,team){const values=game?.liveLineups?.[team]||[];return Array.from({length:5},(_,i)=>values[i]||'')}
