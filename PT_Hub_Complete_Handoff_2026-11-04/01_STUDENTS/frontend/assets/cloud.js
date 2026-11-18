@@ -30,10 +30,10 @@
  const ownerToken=id=>{if(!ownerTokens[id]){ownerTokens[id]=randomToken();rememberTokens()}return ownerTokens[id]};
  const forgetToken=id=>{if(ownerTokens[id]){delete ownerTokens[id];rememberTokens()}};
  // Drill results already in the shared database are remembered on the device, so a reload does not re-send the season.
- let roster=new Map(),drills=new Map(),cloudShots=new Map(),cloudDrillResults=new Set(readJson(cloudResultsKey,[]).filter(id=>typeof id==='string')),cloudSituationShots=new Map(),situationLoaded=false,situationSyncing=false,legacySituationMode=false,cloudSituationSignature='',cloudScheduleSignature='',scheduleLoaded=false,busy=false,lastError='',resultRetryDelay=RETRY_BASE_MS,resultRetryTimer=null,shotRetryDelay=RETRY_BASE_MS,shotRetryTimer=null,lastLoadAt=0;
+ let roster=new Map(),drills=new Map(),cloudShots=new Map(),cloudDrillResults=new Set(readJson(cloudResultsKey,[]).filter(id=>typeof id==='string')),cloudSituationShots=new Map(),situationLoaded=false,situationSyncing=false,legacySituationMode=false,cloudSituationSignature='',cloudScheduleSignature='',scheduleLoaded=false,scheduleSyncing=false,queuedScheduleSignature='',busy=false,lastError='',resultRetryDelay=RETRY_BASE_MS,resultRetryTimer=null,shotRetryDelay=RETRY_BASE_MS,shotRetryTimer=null,lastLoadAt=0;
  const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  const status=document.createElement('div');status.id='ptSharedStatus';status.setAttribute('role','status');status.textContent='Connecting shared team data…';
- if(!fullPages.has(page)&&!playerPage)status.hidden=true;
+ if(!fullPages.has(page)&&!playerPage&&page!=='live-game.html')status.hidden=true;
  document.querySelector('nav')?.insertAdjacentElement('afterend',status);
  const badge=document.getElementById('storageStatus');
  const label=(msg,error=false)=>{lastError=error?msg:'';status.textContent=msg;status.classList.toggle('pt-error',error);if(badge)badge.textContent=error?'Cloud save needs attention':'Shared team data · Supabase';};
@@ -193,8 +193,9 @@
   }catch(e){failed=true;label('Game situation shots saved on this device. Cloud retry pending: '+e.message,true)}
   finally{situationSyncing=false;if(!failed)setTimeout(noticeChanges,0)}
  }
- // Prefer whichever copy of a game carries more recorded events, then the newer edit. Live events must never be erased by a stale schedule copy.
- const pickGame=(local,remote)=>{const le=Array.isArray(local.events)?local.events.length:0,re=Array.isArray(remote.events)?remote.events.length:0;if(le!==re)return le>re?local:remote;const lu=Date.parse(local.updatedAt||'')||0,ru=Date.parse(remote.updatedAt||'')||0;return lu>ru?local:remote};
+ // Prefer the newest game edit. Event count alone cannot resolve an undo: an
+ // intentionally emptied local event list must beat an older cloud snapshot.
+ const pickGame=(local,remote)=>{const lu=Date.parse(local.updatedAt||'')||0,ru=Date.parse(remote.updatedAt||'')||0;if(lu!==ru)return lu>ru?local:remote;const le=Array.isArray(local.events)?local.events.length:0,re=Array.isArray(remote.events)?remote.events.length:0;return le>re?local:remote};
  const mergeById=(local,shared,pick=(a,b)=>b)=>{const merged=new Map(local.filter(x=>x?.id).map(x=>[x.id,x]));for(const item of shared)if(item?.id)merged.set(item.id,merged.has(item.id)?pick(merged.get(item.id),item):item);return [...merged.values()]};
  window.ptCloudMergeGames=(local,shared)=>mergeById(local,shared,pickGame);
  async function load(){
@@ -307,7 +308,10 @@
   }catch{label('Shared data unavailable. Saving on this device and retrying.',true)}
  }
  async function syncSchedule(signature){
+  if(scheduleSyncing){queuedScheduleSignature=signature;return}
+  scheduleSyncing=true;
   try{await request('schedule_sync','POST',{schedule:state.schedule,games:state.games},await token());cloudScheduleSignature=signature;label('Schedule saved to Supabase')}catch(e){label('Schedule cloud save failed: '+e.message,true)}
+  finally{scheduleSyncing=false;const next=queuedScheduleSignature;queuedScheduleSignature='';if(next&&next!==cloudScheduleSignature)syncSchedule(next)}
  }
  async function syncLegacyGameSituations(situations,signature){
   try{for(const game of situations){if(!uuid.test(game.id))continue;await request('game_situation','POST',{id:game.id,practice_date:game.date,payload:game})}cloudSituationSignature=signature;label('Game situation data saved to Supabase')}catch(e){label('Game situation cloud save failed: '+e.message,true)}
