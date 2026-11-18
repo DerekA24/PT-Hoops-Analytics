@@ -26,6 +26,15 @@
   return window.PTScheduleGameEntries();
  }
  const selectedEntry=()=>entries().find(e=>e.key===selection);
+ // The cloud snapshot may contain an older copy of a game. Stamp local edits so
+ // the merge can preserve an undo (including an empty event list) over that copy.
+ function saveGame(game=selectedEntry()?.game){if(game)game.updatedAt=new Date().toISOString();save()}
+ const cloudSyncButton=document.createElement('button');cloudSyncButton.id='liveCloudSync';cloudSyncButton.type='button';cloudSyncButton.textContent='Enable Supabase saves';cloudSyncButton.setAttribute('aria-label','Enable coach-authorized Supabase saves');document.querySelector('.live-game-heading')?.append(cloudSyncButton);
+ cloudSyncButton.onclick=()=>{
+  if(window.PTCoachAccess?.isUnlocked())return toast('Supabase saves are already enabled on this page.');
+  const code=window.prompt('Enter the coach access code to enable Supabase saves for this Live Game session.');if(!code)return;
+  window.PTCoachAccess.unlock(code);window.dispatchEvent(new Event('pt-coach-unlocked'));saveGame();
+ };
  function ensureGame(){
   const entry=selectedEntry();if(!entry)return null;
   if(entry.game)return entry.game;
@@ -47,6 +56,7 @@
  }
  function updateDot(){for(const id of ['liveCourtDot','liveCourtDotHalo']){const dot=$(id);dot.setAttribute('cx',String(point.x));dot.setAttribute('cy',String(point.y))}$('liveLocationText').textContent=`${point.x}, ${point.y}`}
  function render(){
+  cloudSyncButton.textContent=window.PTCoachAccess?.isUnlocked()?'Supabase saves enabled':'Enable Supabase saves';cloudSyncButton.setAttribute('aria-pressed',String(!!window.PTCoachAccess?.isUnlocked()));
   const list=entries();if(!list.some(e=>e.key===selection))selection=situation?'new':'';
   if($('liveGameSelector')){$('liveGameSelector').innerHTML=situation?list.map(entry=>`<option value="${esc(entry.key)}">${entry.key==='new'?'New Red vs White session':esc(entry.game.date)+' - Red vs White #'+(state.gameSituations.indexOf(entry.game)+1)+' - '+esc(new Date(entry.game.createdAt||entry.game.date).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}))}</option>`).join(''):'<option value="">Select a game</option>'+list.map(entry=>{const item=entry.schedule||entry.game;return `<option value="${esc(entry.key)}">${esc(item.date||'Date TBD')} · ${item.location==='Away'?'@':'vs'} ${esc(item.opponent||'Opponent TBD')}${item.time?' · '+esc(displayGameTime(item.time)):''}</option>`}).join('');$('liveGameSelector').value=selection;}
   const entry=selectedEntry(),game=entry?.game,opponent=situation?'White':(entry?.schedule||game)?.opponent||'Opponent',active=activePlayer(game);
@@ -87,7 +97,7 @@
   const game=selectedEntry()?.game;
   if(game&&game.liveActive?.team!==tabletTeam){
    const lineup=slots(game,tabletTeam),slot=lineup.findIndex(id=>roster(game,tabletTeam).some(p=>p.id===id));
-   game.liveActive=slot>=0?{team:tabletTeam,slot,playerId:lineup[slot]}:null;save();
+   game.liveActive=slot>=0?{team:tabletTeam,slot,playerId:lineup[slot]}:null;saveGame(game);
   }else render();
  });
  tablet.addEventListener('change',arrangeTabletFooter);arrangeTabletFooter();
@@ -100,15 +110,15 @@
  if($('liveGameSelector'))$('liveGameSelector').onchange=e=>{selection=e.target.value;localStorage.setItem(selectionKey,selection);point={x:250,y:300};restoreTeam=true;render()};
  $('livePlayerSlots').onchange=e=>{
   const select=e.target.closest('[data-live-player]');if(!select)return;const [team,index]=select.dataset.livePlayer.split(':'),game=ensureGame();if(!game)return;
-  if(setLineup(game,team,Number(index),select.value))save();else render();
+  if(setLineup(game,team,Number(index),select.value))saveGame(game);else render();
  };
  $('livePlayerSlots').onclick=e=>{
   const button=e.target.closest('[data-live-activate]');if(!button)return;
   const [team,index]=button.dataset.liveActivate.split(':'),game=ensureGame();if(!game)return;
   const slot=Number(index),playerId=slots(game,team)[slot];if(!playerId||!roster(game,team).some(player=>player.id===playerId))return;
-  game.liveActive={team,slot,playerId};save();
+  game.liveActive={team,slot,playerId};saveGame(game);
  };
- function moveDot(x,y){point={x:Math.max(12,Math.min(488,Math.round(x))),y:Math.max(12,Math.min(458,Math.round(y)))};updateDot();if(selectedEntry()){const game=ensureGame();game.liveCourtPoint={...point};save()}}
+ function moveDot(x,y){point={x:Math.max(12,Math.min(488,Math.round(x))),y:Math.max(12,Math.min(458,Math.round(y)))};updateDot();if(selectedEntry()){const game=ensureGame();game.liveCourtPoint={...point};saveGame(game)}}
  $('liveCourt').onclick=e=>{const court=$('liveCourt'),position=court.createSVGPoint();position.x=e.clientX;position.y=e.clientY;const transformed=position.matrixTransform(court.getScreenCTM().inverse());moveDot(transformed.x,transformed.y)};
  $('liveCourt').onkeydown=e=>{const steps={ArrowLeft:[-5,0],ArrowRight:[5,0],ArrowUp:[0,-5],ArrowDown:[0,5]};if(!steps[e.key])return;e.preventDefault();moveDot(point.x+steps[e.key][0],point.y+steps[e.key][1])};
  $('liveStatButtons').onclick=e=>{
@@ -121,7 +131,7 @@
    const events=Array.isArray(game.events)?game.events:[];game.events=events;events.push(event);game.played=true;game.final=false;
    if(situation)state.gameSituationShots.push({id:event.id,playerId:event.playerId,date:game.date,type:event.type,x:event.x,y:event.y,recordedAt:event.recordedAt,undone:false});
    game.teamScore=before.pt+(active.team==='pt'?points(event):0);game.opponentScore=before.opponent+(active.team==='opponent'?points(event):0);game.oppScore=game.opponentScore;
-   save();
+   saveGame(game);
   }finally{busy=false;render()}
  };
  if(situation){
@@ -129,21 +139,21 @@
    const game=selectedEntry()?.game;if(!game)return;
    const before={pt:score(game,'pt'),opponent:score(game,'opponent')};
    if(!before.pt&&!before.opponent)return;
-   resetActions.score(game,uid(),eventSource,before);save();
+   resetActions.score(game,uid(),eventSource,before);saveGame(game);
   };
   $('liveResetRoster').onclick=()=>{
    const game=selectedEntry()?.game;if(!game)return;
    const lineups={pt:slots(game,'pt'),opponent:slots(game,'opponent')};
    if(![...lineups.pt,...lineups.opponent].some(Boolean)&&!game.liveActive)return;
-   resetActions.roster(game,uid(),eventSource,lineups,game.liveActive);save();
+   resetActions.roster(game,uid(),eventSource,lineups,game.liveActive);saveGame(game);
   };
  }
  $('liveUndo').onclick=()=>{
   const game=selectedEntry()?.game,last=game?.events?.at(-1);if(!last||last.source!==eventSource)return;
-   if(situation&&resetActions.undo(game)){save();return}
+   if(situation&&resetActions.undo(game)){saveGame(game);return}
    game.events.pop();
    if(situation){const shot=state.gameSituationShots.find(x=>x.id===last.id);if(shot)shot.undone=true;else state.gameSituationShots.push({id:last.id,playerId:last.playerId,date:game.date,type:last.type,x:last.x,y:last.y,recordedAt:last.recordedAt,undone:true});}
-   game.teamScore=last.scoreBefore?.pt??Math.max(0,score(game,'pt')-(last.team==='opponent'?0:points(last)));game.opponentScore=last.scoreBefore?.opponent??Math.max(0,score(game,'opponent')-(last.team==='opponent'?points(last):0));game.oppScore=game.opponentScore;save();
+   game.teamScore=last.scoreBefore?.pt??Math.max(0,score(game,'pt')-(last.team==='opponent'?0:points(last)));game.opponentScore=last.scoreBefore?.opponent??Math.max(0,score(game,'opponent')-(last.team==='opponent'?points(last):0));game.oppScore=game.opponentScore;saveGame(game);
  };
  if($('liveGenerateReport'))$('liveGenerateReport').onclick=()=>{
   const entry=selectedEntry();if(!entry)return toast('Select a game before generating a report.');
@@ -168,7 +178,7 @@
   const players=roster(game,'opponent');if(number!==''&&players.some(p=>p.number!==''&&Number(p.number)===Number(number))){$('liveOpponentError').textContent='That jersey number is already on this opponent roster.';return}
   const player={id:'opponent-'+uid(),name,number};game.opponentPlayers=[...players,player];
   const lineup=slots(game,'opponent'),empty=lineup.indexOf('');if(empty>=0)setLineup(game,'opponent',empty,player.id);
-  tabletTeam='opponent';save();$('liveOpponentDialog').close();
+  tabletTeam='opponent';saveGame(game);$('liveOpponentDialog').close();
  };
  window.renderLiveGame=render;if(!situation)window.seedSeasonSchedule?.();render();
 })();
