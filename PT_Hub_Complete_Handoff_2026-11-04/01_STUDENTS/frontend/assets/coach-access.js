@@ -2,13 +2,15 @@
 (()=>{
 'use strict';
 const KEY='pt-coach-local-access-v2';
+const SESSION_KEY='pt-coach-session-code-v1';
 const DEFAULT_CODE='232323',CODE_VERSION='default-232323-v1';
 const $=id=>document.getElementById(id);
 let unlocked=false, mode='unlock', sessionCode='';
 // Pages style coach-only controls from body[data-coach], so every unlock or lock passes through here.
 const setCoachState=()=>{if(document.body)document.body.dataset.coach=unlocked?'unlocked':'locked'};
-const grant=code=>{sessionCode=code;unlocked=true;setCoachState()};
-const revoke=()=>{unlocked=false;sessionCode='';setCoachState()};
+const grant=code=>{sessionCode=code;unlocked=true;try{sessionStorage.setItem(SESSION_KEY,code)}catch{}setCoachState()};
+const revoke=()=>{unlocked=false;sessionCode='';try{sessionStorage.removeItem(SESSION_KEY)}catch{}setCoachState()};
+const suspend=()=>{unlocked=false;sessionCode='';setCoachState()};
 const record=()=>{try{const saved=JSON.parse(localStorage.getItem(KEY)||'null');return saved?.version===CODE_VERSION&&typeof saved.salt==='string'&&typeof saved.hash==='string'?saved:null}catch{return null}};
 const salt=()=>{let a=new Uint8Array(16);if(window.crypto&&crypto.getRandomValues)crypto.getRandomValues(a);else a.forEach((_,i)=>a[i]=Math.random()*256|0);return Array.from(a,x=>x.toString(16).padStart(2,'0')).join('')};
 async function digest(code,s){
@@ -22,8 +24,11 @@ window.PTCoachAccess={
  verify:async code=>{const saved=record();return saved?await digest(code,saved.salt)===saved.hash:code===DEFAULT_CODE},
  unlock:code=>grant(String(code??'')),
  lock:()=>revoke()};
+try{const saved=sessionStorage.getItem(SESSION_KEY);if(saved){sessionCode=saved;unlocked=true}}catch{}
 setCoachState();
-window.addEventListener('pagehide',revoke);
+// Keep coach authorization while the user navigates within this tab; the
+// sessionStorage entry is discarded when the tab closes or the coach locks.
+window.addEventListener('pagehide',suspend);
 if(!document.getElementById('coachGate'))return;
 function show(modeChoice='unlock'){
  mode=modeChoice;

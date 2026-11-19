@@ -64,7 +64,7 @@
   $('otherLeaderboardHeading').textContent=situationMode?'Game Situation Leaderboards':'All Game Stat Leaderboards';
   if(situationMode){renderSituation();return}
   renderDrillWins();
-  const games=state.games.filter(g=>(g.played||g.final||g.events?.length||g.playerStats?.length)&&($('otherScope').value!=='range'||dateInRange(g.date,'other')));
+  const games=state.games.filter(g=>!window.PTIsGameSituationMatchup(g)&&(g.played||g.final||g.events?.length||g.playerStats?.length)&&($('otherScope').value!=='range'||dateInRange(g.date,'other')));
   const totals=totalsFor(games),minimum=Math.max(1,Math.floor(Number($('otherMinGames').value)||1));
   const selected=$('otherStat').value,athletes=new Set();let recordedStats=0;
   $('otherWall').innerHTML=stats.map(stat=>{

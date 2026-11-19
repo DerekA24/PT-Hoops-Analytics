@@ -59,8 +59,8 @@
   $('scheduleEditorError').textContent='';scoreFields();$('scheduleGameDialog').showModal();
  }
  function ensureGame(entry){
-  if(entry.game)return entry.game;
-  const item=entry.schedule,game={id:uid(),scheduleId:item.id,date:item.date,opponent:item.opponent,time:item.time||'',location:item.location||'Home',hudlUrl:item.hudlUrl||'',events:[],...(item.testOnly===true?{testOnly:true}:{})};state.games.push(game);return game;
+  if(entry.game){if(entry.schedule?.statsCategory==='game-situation'||entry.game.scheduleId==='a6d4920b-6180-4c40-8b0c-8c02d2b10002'||String(entry.game.opponent||'').trim().toLowerCase()==='scrimmage')entry.game.statsCategory='game-situation';return entry.game}
+  const item=entry.schedule,game={id:uid(),scheduleId:item.id,date:item.date,opponent:item.opponent,time:item.time||'',location:item.location||'Home',hudlUrl:item.hudlUrl||'',events:[],...(item.testOnly===true?{testOnly:true}:{}),...(item.statsCategory?{statsCategory:item.statsCategory}:{})};state.games.push(game);return game;
  }
  $('scheduleGameForm').onsubmit=e=>{
   e.preventDefault();if(!editPermit){$('scheduleEditorError').textContent='Coach access is required. Close this window and try again.';return}const key=$('scheduleEditKey').value,entry=key?findEntry(key):null;
