@@ -30,7 +30,7 @@
  const ownerToken=id=>{if(!ownerTokens[id]){ownerTokens[id]=randomToken();rememberTokens()}return ownerTokens[id]};
  const forgetToken=id=>{if(ownerTokens[id]){delete ownerTokens[id];rememberTokens()}};
  // Drill results already in the shared database are remembered on the device, so a reload does not re-send the season.
- let roster=new Map(),drills=new Map(),cloudShots=new Map(),cloudDrillResults=new Set(readJson(cloudResultsKey,[]).filter(id=>typeof id==='string')),cloudSituationShots=new Map(),situationLoaded=false,situationSyncing=false,legacySituationMode=false,cloudSituationSignature='',cloudScheduleSignature='',scheduleLoaded=false,scheduleSyncing=false,queuedScheduleSignature='',busy=false,lastError='',resultRetryDelay=RETRY_BASE_MS,resultRetryTimer=null,shotRetryDelay=RETRY_BASE_MS,shotRetryTimer=null,lastLoadAt=0;
+ let roster=new Map(),drills=new Map(),cloudShots=new Map(),cloudDrillResults=new Set(readJson(cloudResultsKey,[]).filter(id=>typeof id==='string')),cloudSituationShots=new Map(),situationLoaded=false,situationSyncing=false,legacySituationMode=false,cloudSituationSignature='',cloudScheduleSignature='',scheduleLoaded=false,scheduleSyncing=false,queuedScheduleSignature='',liveGameSyncTimer=null,liveGameSyncBusy=false,queuedLiveGame=null,liveGameRetryDelay=RETRY_BASE_MS,busy=false,lastError='',resultRetryDelay=RETRY_BASE_MS,resultRetryTimer=null,shotRetryDelay=RETRY_BASE_MS,shotRetryTimer=null,lastLoadAt=0;
  const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  const status=document.createElement('div');status.id='ptSharedStatus';status.setAttribute('role','status');status.textContent='Connecting shared team data…';
  if(!fullPages.has(page)&&!playerPage&&page!=='live-game.html')status.hidden=true;
@@ -90,7 +90,7 @@
    if(pending.length)flush();
    if(pendingDrillResults.length)flushDrillResults();
    const scheduleSignature=JSON.stringify({schedule:state.schedule,games:state.games});
-   if(scheduleLoaded&&scheduleSignature!==cloudScheduleSignature){if(window.PTCoachAccess?.isUnlocked())syncSchedule(scheduleSignature);else if(page==='live-game.html')label('Game changes are saved on this device only. Enter the coach code to sync them to Supabase.',true)}
+   if(scheduleLoaded&&scheduleSignature!==cloudScheduleSignature&&page!=='live-game.html'&&window.PTCoachAccess?.isUnlocked())syncSchedule(scheduleSignature);
    if(situationLoaded&&state.gameSituationShots.some(shot=>validSituationShot(shot)&&(!cloudSituationShots.has(shot.id)?!shot.undone:shot.undone&&!cloudSituationShots.get(shot.id))))syncGameSituationShots();
    if(legacySituationMode){const situations=state.gameSituations||[],signature=JSON.stringify(situations);if(signature!==cloudSituationSignature)syncLegacyGameSituations(situations,signature)}
    if(window.PTCoachAccess?.isUnlocked())for(const p of state.players){if(!knownPlayers.has(p.id)){knownPlayers.add(p.id);sendPlayer(p)}}
@@ -231,10 +231,12 @@
     const remote=data.scheduleRecords.flatMap(record=>record.payload&&typeof record.payload==='object'?[record.payload]:[]);
     const remoteSchedule=remote.flatMap(record=>Array.isArray(record.schedule)?record.schedule:[]);
     const remoteGames=remote.flatMap(record=>Array.isArray(record.games)?record.games:[]);
+    const localGames=page==='live-game.html'?state.games.filter(game=>game.updatedAt):[];
     const mergedSchedule=mergeById(state.schedule,remoteSchedule),mergedGames=mergeById(state.games,remoteGames,pickGame);
     if(JSON.stringify(state.schedule)!==JSON.stringify(mergedSchedule)||JSON.stringify(state.games)!==JSON.stringify(mergedGames)){state.schedule=mergedSchedule;state.games=mergedGames;save();}
     cloudScheduleSignature=remote.length?JSON.stringify({schedule:remoteSchedule,games:remoteGames}):'';
     scheduleLoaded=true;
+    if(page==='live-game.html')for(const game of localGames){const shared=remoteGames.find(item=>item.id===game.id||item.scheduleId&&item.scheduleId===game.scheduleId);if(!shared||(Date.parse(game.updatedAt)||0)>(Date.parse(shared.updatedAt)||0))window.ptCloudQueueLiveGameSave?.(game)}
    }
    let changedSituation=false;
    if((currentScope==='full'||currentScope==='player'||currentScope==='situation')&&Array.isArray(data.gameSituationShots)){
@@ -332,6 +334,15 @@
   try{await request('schedule_sync','POST',{schedule:state.schedule,games:state.games},await token());cloudScheduleSignature=signature;label('Schedule saved to Supabase')}catch(e){label('Schedule cloud save failed: '+e.message,true)}
   finally{scheduleSyncing=false;const next=queuedScheduleSignature;queuedScheduleSignature='';if(next&&next!==cloudScheduleSignature)syncSchedule(next)}
  }
+ async function syncLiveGame(){
+  if(liveGameSyncBusy||page!=='live-game.html'||!queuedLiveGame)return;
+  liveGameSyncTimer=null;
+  liveGameSyncBusy=true;const game=queuedLiveGame;queuedLiveGame=null;
+  try{await request('live_game_sync','POST',{game});liveGameRetryDelay=RETRY_BASE_MS;label('Live Game saved to Supabase')}
+  catch(e){if(!queuedLiveGame)queuedLiveGame=game;label('Live Game saved on this device. Supabase retry pending: '+e.message,true);clearTimeout(liveGameSyncTimer);liveGameSyncTimer=setTimeout(syncLiveGame,liveGameRetryDelay);liveGameRetryDelay=Math.min(RETRY_MAX_MS,liveGameRetryDelay*2)}
+  finally{liveGameSyncBusy=false;if(queuedLiveGame&&liveGameSyncTimer===null)liveGameSyncTimer=setTimeout(syncLiveGame,0)}
+ }
+ window.ptCloudQueueLiveGameSave=game=>{if(page!=='live-game.html'||!game?.scheduleId)return;try{queuedLiveGame=JSON.parse(JSON.stringify(game))}catch{return}clearTimeout(liveGameSyncTimer);liveGameSyncTimer=setTimeout(syncLiveGame,120)};
  async function syncLegacyGameSituations(situations,signature){
   try{for(const game of situations){if(!uuid.test(game.id))continue;await request('game_situation','POST',{id:game.id,practice_date:game.date,payload:game})}cloudSituationSignature=signature;label('Game situation data saved to Supabase')}catch(e){label('Game situation cloud save failed: '+e.message,true)}
  }
