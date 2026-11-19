@@ -31,3 +31,14 @@ The first count should remain three at rollout. The shot count should be at
 least 65, and match the distinct-ID count. New shots should increase only the
 new shot table; clicking Undo should mark its row `undone = true`. Keep the
 historical session table as a non-destructive backup.
+
+## Draw Foul action
+
+Apply `migrations/202611190001_game_situation_draw_foul.sql`, then deploy the
+updated `functions/pt-hub/index.ts` Edge Function before publishing the new
+frontend. The migration only expands the allowed event types; it does not
+rewrite or delete existing rows. Draw Foul is stored with `shot_type =
+'DRAW_FOUL'` and the same player, date, location, and timestamp fields as
+other Game Situation actions. It does not count as a shot attempt or a
+personal foul. If the frontend is published first, its Draw Foul events stay
+on the recording device and retry after the database and function are updated.

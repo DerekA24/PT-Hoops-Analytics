@@ -157,7 +157,7 @@
    }catch(e){retry=true;label('Shot saved on this device. Cloud retry pending: '+e.message,true)}
    finally{busy=false;if(retry&&pending.length){shotRetryTimer=setTimeout(flush,shotRetryDelay);shotRetryDelay=Math.min(RETRY_MAX_MS,shotRetryDelay*2)}if(pendingDrillResults.length)setTimeout(flushDrillResults,0)}
  }
- const validSituationShot=shot=>uuid.test(shot.id)&&uuid.test(shot.playerId)&&/^\d{4}-\d{2}-\d{2}$/.test(shot.date||'')&&(/^(TWO|THREE|FT)_[MX]$/.test(shot.type||'')||['REB','DRB','ORB','TO'].includes(shot.type))&&Number.isInteger(shot.x)&&shot.x>=12&&shot.x<=488&&Number.isInteger(shot.y)&&shot.y>=12&&shot.y<=458&&Number.isFinite(Date.parse(shot.recordedAt));
+ const validSituationShot=shot=>uuid.test(shot.id)&&uuid.test(shot.playerId)&&/^\d{4}-\d{2}-\d{2}$/.test(shot.date||'')&&(/^(TWO|THREE|FT)_[MX]$/.test(shot.type||'')||['REB','DRB','ORB','TO','DRAW_FOUL'].includes(shot.type))&&Number.isInteger(shot.x)&&shot.x>=12&&shot.x<=488&&Number.isInteger(shot.y)&&shot.y>=12&&shot.y<=458&&Number.isFinite(Date.parse(shot.recordedAt));
  const legacySituationShot=(event,session)=>({id:event.id,playerId:event.playerId,date:session.date,type:event.type,x:event.x,y:event.y,recordedAt:event.recordedAt||session.createdAt||(session.date?session.date+'T12:00:00Z':''),undone:false});
  async function syncGameSituationShots(){
   if(situationSyncing)return;
@@ -177,6 +177,9 @@
        try{await request('game_situation_shot','POST',{...payload,shot_type:'REB'});cloudSituationShots.set(shot.id,false);continue}
        catch(fallbackError){if(!isClientError(fallbackError))throw fallbackError;e=fallbackError}
       }
+      // Keep new Draw Foul events queued if the database migration or function
+      // has not reached the server yet. Never turn them into another stat.
+      if(shot.type==='DRAW_FOUL')throw e;
       reject(shot.id,e.message);cloudSituationShots.set(shot.id,true);label('A game situation shot was rejected by the shared database: '+e.message,true);continue;
      }
      cloudSituationShots.set(shot.id,false);
@@ -191,7 +194,7 @@
    }
    if(!lastError)label('Game situation shots saved to Supabase');
   }catch(e){failed=true;label('Game situation shots saved on this device. Cloud retry pending: '+e.message,true)}
-  finally{situationSyncing=false;if(!failed)setTimeout(noticeChanges,0)}
+  finally{situationSyncing=false;setTimeout(noticeChanges,failed?RETRY_MAX_MS:0)}
  }
  // Prefer the newest game edit. Event count alone cannot resolve an undo: an
  // intentionally emptied local event list must beat an older cloud snapshot.

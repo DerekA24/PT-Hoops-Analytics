@@ -11,6 +11,7 @@
 }
 
 @media print{.report-score h1,.report-score h2{font-size:20px;padding:10px 12px}.report-score>strong{font-size:26px}.report-court{height:370px}.report-chart-grid{gap:12px}}
+.report-court{height:auto;aspect-ratio:500/322}
 
 @media print{
  .report-table.box-score th,.report-table.box-score td{font-size:8.5px;line-height:1.15;padding:1.5px 1px}

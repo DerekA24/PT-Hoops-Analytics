@@ -3,40 +3,53 @@ let profileSource='practice',profileAllDates=true,profileStatsSource='situation'
 const profileSources=[['practice','Practice','practiceShots','trendPracticeShots'],['game-situation','Game Situation','gameSituationShots','trendGameSituationShots'],['game','Game','gameShots','trendGameShots']];
 const profileSourceLabel=()=>profileSources.find(([key])=>key===profileSource)?.[1]||'Practice';
 const profileZones=[
- {id:'rim',name:'Finishing',x:250,y:116,path:'M174 12H326V146H174Z'},
- {id:'floaters',name:'Floaters',x:250,y:167,path:'M174 146H326V186H174Z'},
- {id:'midCornerLeft',name:'Midrange Corner Left',x:110,y:110,path:'M45 12H174V202H52L45 184Z'},
- {id:'midCornerRight',name:'Midrange Corner Right',x:390,y:110,path:'M326 12H455V184L448 202H326Z'},
- {id:'midWingLeft',name:'Midrange Wing Left',x:112,y:282,path:'M52 202H174V352L90 300Z'},
- {id:'midWingRight',name:'Midrange Wing Right',x:388,y:282,path:'M326 202H448L410 300L326 352Z'},
- {id:'midKey',name:'Midrange Key',x:250,y:300,path:'M174 186H326V352H174Z'},
- {id:'free',name:'Free Throws',x:250,y:215,path:'M210 199H290V236H210Z'},
- {id:'cornerLeft',name:'Corner 3 Left',x:28,y:100,rotate:true,path:'M12 12H45V184H12Z'},
- {id:'cornerRight',name:'Corner 3 Right',x:472,y:100,rotate:true,path:'M455 12H488V184H455Z'},
- {id:'wingLeft',name:'Wing 3 Left',x:57,y:233,path:'M12 184H45L90 300L62 345L12 280Z'},
- {id:'wingRight',name:'Wing 3 Right',x:443,y:233,path:'M455 184H488V280L438 345L410 300Z'},
- {id:'slotLeft',name:'Slot 3 Left',x:119,y:390,path:'M12 280L62 345L90 300L174 352V458H12Z'},
- {id:'slotRight',name:'Slot 3 Right',x:381,y:390,path:'M326 352L410 300L438 345L488 280V458H326Z'},
- {id:'top',name:'Top of Key 3',x:250,y:394,path:'M174 352H326V458H174Z'}
+ {id:'rim',name:'Finishing',x:250,y:85,compact:true,path:'M193 12H307V101H193Z'},
+ {id:'floaters',name:'Floaters',x:250,y:145,path:'M193 101H307V191H193Z'},
+ {id:'midCornerLeft',name:'Midrange Corner Left',label:'Mid Corner L',x:128,y:67,path:'M64 12H193V101H68A186 186 0 0 1 64 62Z'},
+ {id:'midCornerRight',name:'Midrange Corner Right',label:'Mid Corner R',x:372,y:67,path:'M307 12H436V62A186 186 0 0 1 432 101H307Z'},
+ {id:'midWingLeft',name:'Midrange Wing Left',label:'Mid Wing L',x:140,y:157,path:'M68 101H193V177L168 230A186 186 0 0 1 68 101Z'},
+ {id:'midWingRight',name:'Midrange Wing Right',label:'Mid Wing R',x:360,y:157,path:'M307 101H432A186 186 0 0 1 332 230L307 177Z'},
+ {id:'midKey',name:'Midrange Key',label:'Mid Key',x:250,y:232,path:'M193 177L168 230A186 186 0 0 0 332 230L307 177V191H193Z'},
+ {id:'free',name:'Free Throws',label:'FT',x:250,y:184,path:'M220 178H280V205H220Z'},
+ {id:'cornerLeft',name:'Corner 3 Left',label:'Corner 3 L',x:35,y:56,rotate:true,path:'M12 12H64V62A186 186 0 0 0 68 101H12Z'},
+ {id:'cornerRight',name:'Corner 3 Right',label:'Corner 3 R',x:465,y:56,rotate:true,path:'M488 12H436V62A186 186 0 0 1 432 101H488Z'},
+ {id:'wingLeft',name:'Wing 3 Left',label:'Wing 3 L',x:61,y:171,path:'M12 101H68A186 186 0 0 0 130 204L12 310Z'},
+ {id:'wingRight',name:'Wing 3 Right',label:'Wing 3 R',x:439,y:171,path:'M488 101H432A186 186 0 0 1 370 204L488 310Z'},
+ {id:'slotLeft',name:'Slot 3 Left',label:'Slot 3 L',x:116,y:273,path:'M130 204A186 186 0 0 0 207 243L168 310H12Z'},
+ {id:'slotRight',name:'Slot 3 Right',label:'Slot 3 R',x:384,y:273,path:'M370 204A186 186 0 0 1 293 243L332 310H488Z'},
+ {id:'top',name:'Top of Key 3',label:'Top 3',x:250,y:286,path:'M207 243A186 186 0 0 0 293 243L332 310H168Z'}
 ];
+const profileCourtYStops=[[12,12],[74,62],[202,191],[422,248],[458,300]];
+function profileCourtY(value){for(let i=1;i<profileCourtYStops.length;i++){const a=profileCourtYStops[i-1],b=profileCourtYStops[i];if(value<=b[0])return a[1]+(value-a[0])*(b[1]-a[1])/(b[0]-a[0])}return 300}
 function profileShotSource(shot){if([shot.shotContext,shot.context,shot.source].includes('game-situation'))return 'game-situation';return shot.shotContext==='game'||shot.context==='game'||shot.source==='game'||shot.gameId?'game':'practice'}
 function profileIsTestGameShot(shot){return !!shot.gameId&&state.games.some(game=>game.id===shot.gameId&&game.testOnly===true)}
 function profileLocation(shot){return shot.x!==null&&shot.y!==null&&shot.x!==''&&shot.y!==''&&Number.isFinite(Number(shot.x))&&Number.isFinite(Number(shot.y))&&Number(shot.x)>=12&&Number(shot.x)<=488&&Number(shot.y)>=12&&Number(shot.y)<=458}
+function courtZoneAt(x,storedY){
+ const y=profileCourtY(storedY),left=x<250,foldedX=left?x:500-x;
+ if(y<191&&x>=193&&x<=307)return y<101?'rim':'floaters';
+ if(Math.hypot(x-250,y-62)<186){
+  if(y<101)return left?'midCornerLeft':'midCornerRight';
+  const keyEdge=193-25*(y-177)/53;
+  if(y>=177&&foldedX>=keyEdge)return 'midKey';
+  return left?'midWingLeft':'midWingRight';
+ }
+ if(y<101)return left?'cornerLeft':'cornerRight';
+ if(y>=243&&foldedX>=207-39*(y-243)/67)return 'top';
+ if(y>=204+106*(130-foldedX)/118)return left?'slotLeft':'slotRight';
+ return left?'wingLeft':'wingRight';
+}
+const courtThreeZoneIds=new Set(['cornerLeft','cornerRight','wingLeft','wingRight','slotLeft','slotRight','top']);
+function courtShotTypeMatchesZone(type,zone){
+ if(/^THREE_[MX]$/.test(type))return courtThreeZoneIds.has(zone);
+ if(/^TWO_[MX]$/.test(type)||type==='FAST_TWO')return !courtThreeZoneIds.has(zone);
+ return true;
+}
 function profileZone(shot){
  const name=String(shot.category||shot.type||shot.drill||'').toLowerCase();
  if(/free throw|^ft_[mx]$/.test(name))return 'free';
- if(profileLocation(shot)){
-  const x=Number(shot.x),y=Number(shot.y),dx=Math.abs(x-250);
-  if(dx<76&&y<146)return 'rim';
-  if(dx<76&&y<186)return 'floaters';
-  if((x<45||x>455)&&y<184)return x<250?'cornerLeft':'cornerRight';
-  if(Math.hypot(x-250,Math.max(0,y-184))<210){
-   if(x>=174&&x<=326)return 'midKey';
-   if(y<202)return x<250?'midCornerLeft':'midCornerRight';
-   return x<250?'midWingLeft':'midWingRight';
-  }
-  return y<300?(x<250?'wingLeft':'wingRight'):dx>76?(x<250?'slotLeft':'slotRight'):'top';
- }
+ const namedZone=profileZones.find(zone=>zone.name.toLowerCase()===name.trim());
+ if(namedZone)return namedZone.id;
+ if(profileLocation(shot))return courtZoneAt(Number(shot.x),Number(shot.y));
  if(/top of key/.test(name))return 'top';
  if(/midrange|mid.range/.test(name)){
   const detail=name+' '+String(shot.drill||'').toLowerCase();
@@ -288,8 +301,8 @@ function renderProfile(){
  }
  const minHeatAttempts=team&&profileSource==='practice'?20:1;
  $('heatZones').innerHTML=profileZones.map(z=>{const s=zones.get(z.id),visible=s.a>=minHeatAttempts;return `<path data-zone="${z.id}" d="${z.path}" fill="${profileColor(s.m,visible?s.a:0,z.id)}" stroke="#101820" stroke-width="2"><title>${esc(z.name)}: ${visible?s.m+'/'+s.a+' · '+pct(s.m,s.a):'No shots'}</title></path>`}).join('');
- $('heatLabels').innerHTML=mapped?profileZones.map(z=>{const s=zones.get(z.id),visible=s.a>=minHeatAttempts,transform=z.rotate?` transform="rotate(-90 ${z.x} ${z.y})"`:'';return `<text x="${z.x}" y="${z.y-9}" text-anchor="middle"${transform}><tspan x="${z.x}">${esc(z.name)}</tspan><tspan x="${z.x}" dy="16" class="heat-zone-value">${visible?pct(s.m,s.a):'No shots'}</tspan>${visible?`<tspan x="${z.x}" dy="14">${s.m}/${s.a}</tspan>`:''}</text>`}).join(''):'<text class="heat-empty-note" x="250" y="300" text-anchor="middle"><tspan x="250">No shots mapped yet.</tspan><tspan x="250" dy="22">Log shots and this court fills in.</tspan></text>';
- $('markers').innerHTML=profileSource==='game-situation'?'':records.filter(profileLocation).map(s=>`<circle cx="${Number(s.x)}" cy="${Number(s.y)}" r="3" fill="${s.makes?'#fff':'#101820'}" stroke="#fff" stroke-width="1"/>`).join('');
+ $('heatLabels').innerHTML=mapped?profileZones.map(z=>{const s=zones.get(z.id),visible=s.a>=minHeatAttempts,transform=z.rotate?` transform="rotate(-90 ${z.x} ${z.y})"`:'';return `<text x="${z.x}" y="${z.y-9}" text-anchor="middle"${z.id==='midKey'?' class="heat-mid-key-label"':''}${transform}><tspan x="${z.x}">${esc(z.label||z.name)}</tspan><tspan x="${z.x}" dy="16" class="heat-zone-value">${visible?pct(s.m,s.a):'No shots'}</tspan>${visible&&!z.compact?`<tspan x="${z.x}" dy="14">${s.m}/${s.a}</tspan>`:''}</text>`}).join(''):'<text class="heat-empty-note" x="250" y="275" text-anchor="middle"><tspan x="250">No shots mapped yet.</tspan><tspan x="250" dy="22">Log shots and this court fills in.</tspan></text>';
+ $('markers').innerHTML=profileSource==='game-situation'?'':records.filter(profileLocation).map(s=>`<circle cx="${Number(s.x)}" cy="${profileCourtY(Number(s.y))}" r="3" fill="${s.makes?'#fff':'#101820'}" stroke="#fff" stroke-width="1"/>`).join('');
  $('courtMode').textContent=`${label} · ${profileAllDates?'Full season':dateRangeLabel('court')} · ${mapped} of ${attempts} attempts mapped${attempts>mapped?' · '+(attempts-mapped)+' without a court zone':''}${attempts?'':'. No shots recorded for this selection.'}`;
  renderProfileGameStats(player?.id||null);
  $('profileSummary').innerHTML=`<div class="profile-compact-stats"><span><small>Made</small><strong>${makes}</strong></span><span><small>Attempts</small><strong>${attempts}</strong></span><span><small>Shooting</small><strong>${pct(makes,attempts)}</strong></span></div>`;

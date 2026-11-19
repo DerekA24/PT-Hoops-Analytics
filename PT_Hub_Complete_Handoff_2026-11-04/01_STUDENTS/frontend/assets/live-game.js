@@ -5,8 +5,8 @@
  const homeName=situation?'Red':'Park Tudor',eventSource=situation?'game-situation':'live-game';
  const resetActions=situation?window.PTLiveGameResets:null;
  state.gameSituations=Array.isArray(state.gameSituations)?state.gameSituations:[];
- const actions=situation?[['TWO_M','Made 2'],['TWO_X','Missed 2'],['THREE_M','Made 3'],['THREE_X','Missed 3'],['FT_M','Made FT'],['FT_X','Missed FT'],['DRB','DRB'],['ORB','ORB'],['TO','TO']]:[
-  ['TWO_M','2pt Make'],['TWO_X','2pt Miss'],['THREE_M','3pt Make'],['THREE_X','3pt Miss'],['FT_M','Free Throw Make'],['FT_X','Free Throw Miss'],['OREB','ORB'],['DREB','DRB'],['STL','STL'],['AST','AST'],['TO','TO'],['BLK','BLK'],['FOUL','Foul'],['FAST_TWO','Fast Break 2']
+ const actions=situation?[['TWO_M','Made 2'],['TWO_X','Missed 2'],['THREE_M','Made 3'],['THREE_X','Missed 3'],['FT_M','Made FT'],['FT_X','Missed FT'],['ORB','ORB'],['DRB','DRB'],['TO','TO'],['DRAW_FOUL','Draw Foul']]:[
+  ['TWO_M','2pt Make'],['TWO_X','2pt Miss'],['THREE_M','3pt Make'],['THREE_X','3pt Miss'],['FT_M','Free Throw Make'],['FT_X','Free Throw Miss'],['DRAW_FOUL','Draw Foul'],['OREB','ORB'],['DREB','DRB'],['STL','STL'],['AST','AST'],['TO','TO'],['BLK','BLK'],['FOUL','Foul'],['FAST_TWO','Fast Break 2']
  ];
  const tablet=matchMedia('(min-width:768px) and (min-height:600px) and (pointer:coarse)');
  let tabletTeam='pt',restoreTeam=true;
@@ -54,7 +54,9 @@
   if(value!==undefined&&value!==null&&Number.isFinite(Number(value)))return Number(value);
   return (game?.events||[]).filter(e=>(e.team==='opponent'?'opponent':'pt')===team).reduce((n,e)=>n+points(e),0);
  }
- function updateDot(){for(const id of ['liveCourtDot','liveCourtDotHalo']){const dot=$(id);dot.setAttribute('cx',String(point.x));dot.setAttribute('cy',String(point.y))}$('liveLocationText').textContent=`${point.x}, ${point.y}`}
+ const courtYStops=[[12,12],[74,62],[202,191],[422,248],[458,300]];
+ function courtY(value,reverse=false){const from=reverse?1:0,to=reverse?0:1;for(let i=1;i<courtYStops.length;i++){const a=courtYStops[i-1],b=courtYStops[i];if(value<=b[from])return a[to]+(value-a[from])*(b[to]-a[to])/(b[from]-a[from])}return courtYStops.at(-1)[to]}
+ function updateDot(){for(const id of ['liveCourtDot','liveCourtDotHalo']){const dot=$(id);dot.setAttribute('cx',String(point.x));dot.setAttribute('cy',String(courtY(point.y)))}const zone=profileZones.find(item=>item.id===courtZoneAt(point.x,point.y));$('liveLocationText').textContent=`${zone?.name||'Court'} · ${point.x}, ${point.y}`}
  function render(){
   cloudSyncButton.textContent=window.PTCoachAccess?.isUnlocked()?'Supabase saves enabled':'Enable Supabase saves';cloudSyncButton.setAttribute('aria-pressed',String(!!window.PTCoachAccess?.isUnlocked()));
   const list=entries();if(!list.some(e=>e.key===selection))selection=situation?'new':'';
@@ -80,7 +82,7 @@
   }).join('')).join('');
   $('liveRosterNote').innerHTML=state.players.length?'':'Add Park Tudor players in <a href="coach-review.html#roster">Coach Review → Roster</a>.';
   $('liveSelectedPlayer').textContent=active?`${active.team==='pt'?homeName:opponent} · ${playerLabel(active.player)}`:entry?'Choose a player above.':'Select a game and player.';
-  $('liveStatButtons').innerHTML=actions.map(([type,label])=>`<button type="button" data-live-stat="${type}" ${!active||busy?'disabled':''} class="${type.endsWith('_M')||type==='FAST_TWO'?'live-make':type.endsWith('_X')?'live-miss':''}${situation&&['DRB','ORB','TO'].includes(type)?' live-situation-extra':''}"${situation&&['DRB','ORB','TO'].includes(type)?` aria-label="${type==='DRB'?'Defensive Rebounds':type==='ORB'?'Offensive Rebounds':'Turnovers'}"`:''}>${label}</button>`).join('');
+  $('liveStatButtons').innerHTML=actions.map(([type,label])=>`<button type="button" data-live-stat="${type}" ${!active||busy?'disabled':''} class="${type.endsWith('_M')||type==='FAST_TWO'?'live-make':type.endsWith('_X')?'live-miss':''}${situation&&['DRB','ORB','TO','DRAW_FOUL'].includes(type)?' live-situation-extra':''}"${situation&&['DRB','ORB','TO'].includes(type)?` aria-label="${type==='DRB'?'Defensive Rebounds':type==='ORB'?'Offensive Rebounds':'Turnovers'}"`:''}>${label}</button>`).join('');
   const last=(game?.events||[]).at(-1),lastPlayer=last?roster(game,last.team==='opponent'?'opponent':'pt').find(p=>p.id===last.playerId):null;
   $('liveUndo').disabled=!last||last.source!==eventSource;
   $('liveUndo').setAttribute('aria-label',last?.type==='RESET_SCORE'?'Undo score reset':last?.type==='RESET_ROSTER'?'Undo roster reset':'Undo last entry');
@@ -119,15 +121,17 @@
   game.liveActive={team,slot,playerId};saveGame(game);
  };
  function moveDot(x,y){point={x:Math.max(12,Math.min(488,Math.round(x))),y:Math.max(12,Math.min(458,Math.round(y)))};updateDot();if(selectedEntry()){const game=ensureGame();game.liveCourtPoint={...point};saveGame(game)}}
- $('liveCourt').onclick=e=>{const court=$('liveCourt'),position=court.createSVGPoint();position.x=e.clientX;position.y=e.clientY;const transformed=position.matrixTransform(court.getScreenCTM().inverse());moveDot(transformed.x,transformed.y)};
+ $('liveCourt').onclick=e=>{const court=$('liveCourt'),position=court.createSVGPoint();position.x=e.clientX;position.y=e.clientY;const transformed=position.matrixTransform(court.getScreenCTM().inverse());moveDot(transformed.x,courtY(transformed.y,true))};
  $('liveCourt').onkeydown=e=>{const steps={ArrowLeft:[-5,0],ArrowRight:[5,0],ArrowUp:[0,-5],ArrowDown:[0,5]};if(!steps[e.key])return;e.preventDefault();moveDot(point.x+steps[e.key][0],point.y+steps[e.key][1])};
  $('liveStatButtons').onclick=e=>{
   const button=e.target.closest('[data-live-stat]');if(!button||busy)return;const action=actions.find(([type])=>type===button.dataset.liveStat);if(!action)return;
   const game=ensureGame(),active=activePlayer(game);if(!game||!active)return;
+  const shotZone=courtZoneAt(point.x,point.y),threeZone=courtThreeZoneIds.has(shotZone);
+  if(!courtShotTypeMatchesZone(action[0],shotZone))return toast(`This location is a ${threeZone?'3-point':'2-point'} zone. Move the dot or choose the matching shot button.`);
   busy=true;
   try{
    const type=action[0]==='FAST_TWO'?'TWO_M':action[0],before={pt:score(game,'pt'),opponent:score(game,'opponent')};
-   const event={id:uid(),playerId:active.player.id,playerName:active.player.name,team:active.team,type,label:action[1],x:point.x,y:point.y,fastBreak:action[0]==='FAST_TWO',inPaint:type==='TWO_M'&&point.x>=174&&point.x<=326&&point.y<=202,recordedAt:new Date().toISOString(),source:eventSource,shotContext:situation?'game-situation':'game',scoreBefore:before};
+   const event={id:uid(),playerId:active.player.id,playerName:active.player.name,team:active.team,type,label:action[1],x:point.x,y:point.y,fastBreak:action[0]==='FAST_TWO',inPaint:type==='TWO_M'&&['rim','floaters'].includes(shotZone),recordedAt:new Date().toISOString(),source:eventSource,shotContext:situation?'game-situation':'game',scoreBefore:before};
    const events=Array.isArray(game.events)?game.events:[];game.events=events;events.push(event);game.played=true;game.final=false;
    if(situation)state.gameSituationShots.push({id:event.id,playerId:event.playerId,date:game.date,type:event.type,x:event.x,y:event.y,recordedAt:event.recordedAt,undone:false});
    game.teamScore=before.pt+(active.team==='pt'?points(event):0);game.opponentScore=before.opponent+(active.team==='opponent'?points(event):0);game.oppScore=game.opponentScore;
