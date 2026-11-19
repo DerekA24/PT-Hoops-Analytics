@@ -128,15 +128,15 @@
   const game=ensureGame(),active=activePlayer(game);if(!game||!active)return;
   const shotZone=courtZoneAt(point.x,point.y),threeZone=courtThreeZoneIds.has(shotZone);
   if(!courtShotTypeMatchesZone(action[0],shotZone))return toast(`This location is a ${threeZone?'3-point':'2-point'} zone. Move the dot or choose the matching shot button.`);
-  busy=true;
+  busy=true;let recorded=false;
   try{
    const type=action[0]==='FAST_TWO'?'TWO_M':action[0],before={pt:score(game,'pt'),opponent:score(game,'opponent')};
    const event={id:uid(),playerId:active.player.id,playerName:active.player.name,team:active.team,type,label:action[1],x:point.x,y:point.y,fastBreak:action[0]==='FAST_TWO',inPaint:type==='TWO_M'&&['rim','floaters'].includes(shotZone),recordedAt:new Date().toISOString(),source:eventSource,shotContext:situation?'game-situation':'game',scoreBefore:before};
    const events=Array.isArray(game.events)?game.events:[];game.events=events;events.push(event);game.played=true;game.final=false;
    if(situation)state.gameSituationShots.push({id:event.id,playerId:event.playerId,date:game.date,type:event.type,x:event.x,y:event.y,recordedAt:event.recordedAt,undone:false});
    game.teamScore=before.pt+(active.team==='pt'?points(event):0);game.opponentScore=before.opponent+(active.team==='opponent'?points(event):0);game.oppScore=game.opponentScore;
-   saveGame(game);
-  }finally{busy=false;render()}
+   saveGame(game);recorded=true;
+  }finally{busy=false;render();if(recorded)$('liveStatButtons').querySelector(`[data-live-stat="${action[0]}"]`)?.classList.add('live-stat-flash')}
  };
  if(situation){
   $('liveResetScore').onclick=()=>{
