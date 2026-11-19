@@ -14,6 +14,7 @@
  if(situation&&!state.gameSituations.some(session=>'g:'+session.id===selection&&session.date===today()))selection='new';
  const points=event=>({TWO_M:2,THREE_M:3,FT_M:1})[event.type]||0;
  const normalize=value=>String(value||'').toLowerCase().replace(/[^a-z0-9]/g,'');
+ const isScrimmageGame=game=>game?.statsCategory==='game-situation'||game?.scheduleId==='a6d4920b-6180-4c40-8b0c-8c02d2b10002'||game?.id==='a6d4920b-6180-4c40-8b0c-8c02d2b10002'||(!game?.scheduleId&&normalize(game?.opponent)==='scrimmage');
  function displayGameTime(value){
   const text=String(value||'').trim(),match=/^(\d{1,2}):(\d{2})(?::\d{2})?$/.exec(text);
   if(!match)return text;
@@ -29,17 +30,11 @@
  // The cloud snapshot may contain an older copy of a game. Stamp local edits so
  // the merge can preserve an undo (including an empty event list) over that copy.
  function saveGame(game=selectedEntry()?.game){if(game)game.updatedAt=new Date().toISOString();save()}
- const cloudSyncButton=document.createElement('button');cloudSyncButton.id='liveCloudSync';cloudSyncButton.type='button';cloudSyncButton.textContent='Enable Supabase saves';cloudSyncButton.setAttribute('aria-label','Enable coach-authorized Supabase saves');document.querySelector('.live-game-heading')?.append(cloudSyncButton);
- cloudSyncButton.onclick=()=>{
-  if(window.PTCoachAccess?.isUnlocked())return toast('Supabase saves are already enabled on this page.');
-  const code=window.prompt('Enter the coach access code to enable Supabase saves for this Live Game session.');if(!code)return;
-  window.PTCoachAccess.unlock(code);window.dispatchEvent(new Event('pt-coach-unlocked'));saveGame();
- };
  function ensureGame(){
   const entry=selectedEntry();if(!entry)return null;
-  if(entry.game)return entry.game;
+  if(entry.game){if(isScrimmageGame(entry.schedule||entry.game))entry.game.statsCategory='game-situation';return entry.game}
   if(situation){const game={id:uid(),date:today(),createdAt:new Date().toISOString(),homeTeamName:'Red',opponent:'White',opponentPlayers:[],shotContext:'game-situation',events:[],played:false};state.gameSituations.push(game);selection='g:'+game.id;localStorage.setItem(selectionKey,selection);return game}
-  const item=entry.schedule,game={id:uid(),scheduleId:item.id,date:item.date,opponent:item.opponent,time:item.time||'',location:item.location||'Home',hudlUrl:item.hudlUrl||'',events:[],played:false,...(item.testOnly===true?{testOnly:true}:{})};state.games.push(game);return game;
+  const item=entry.schedule,game={id:uid(),scheduleId:item.id,date:item.date,opponent:item.opponent,time:item.time||'',location:item.location||'Home',hudlUrl:item.hudlUrl||'',events:[],played:false,...(item.testOnly===true?{testOnly:true}:{}),...(isScrimmageGame(item)?{statsCategory:'game-situation'}:{})};state.games.push(game);return game;
  }
  function roster(game,team){return situation||team==='pt'?state.players:Array.isArray(game?.opponentPlayers)?game.opponentPlayers:[]}
  function slots(game,team){const values=game?.liveLineups?.[team]||[];return Array.from({length:5},(_,i)=>values[i]||'')}
@@ -58,7 +53,6 @@
  function courtY(value,reverse=false){const from=reverse?1:0,to=reverse?0:1;for(let i=1;i<courtYStops.length;i++){const a=courtYStops[i-1],b=courtYStops[i];if(value<=b[from])return a[to]+(value-a[from])*(b[to]-a[to])/(b[from]-a[from])}return courtYStops.at(-1)[to]}
  function updateDot(){for(const id of ['liveCourtDot','liveCourtDotHalo']){const dot=$(id);dot.setAttribute('cx',String(point.x));dot.setAttribute('cy',String(courtY(point.y)))}const zone=profileZones.find(item=>item.id===courtZoneAt(point.x,point.y));$('liveLocationText').textContent=`${zone?.name||'Court'} · ${point.x}, ${point.y}`}
  function render(){
-  cloudSyncButton.textContent=window.PTCoachAccess?.isUnlocked()?'Supabase saves enabled':'Enable Supabase saves';cloudSyncButton.setAttribute('aria-pressed',String(!!window.PTCoachAccess?.isUnlocked()));
   const list=entries();if(!list.some(e=>e.key===selection))selection=situation?'new':'';
   if($('liveGameSelector')){$('liveGameSelector').innerHTML=situation?list.map(entry=>`<option value="${esc(entry.key)}">${entry.key==='new'?'New Red vs White session':esc(entry.game.date)+' - Red vs White #'+(state.gameSituations.indexOf(entry.game)+1)+' - '+esc(new Date(entry.game.createdAt||entry.game.date).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}))}</option>`).join(''):'<option value="">Select a game</option>'+list.map(entry=>{const item=entry.schedule||entry.game;return `<option value="${esc(entry.key)}">${esc(item.date||'Date TBD')} · ${item.location==='Away'?'@':'vs'} ${esc(item.opponent||'Opponent TBD')}${item.time?' · '+esc(displayGameTime(item.time)):''}</option>`}).join('');$('liveGameSelector').value=selection;}
   const entry=selectedEntry(),game=entry?.game,opponent=situation?'White':(entry?.schedule||game)?.opponent||'Opponent',active=activePlayer(game);
@@ -131,7 +125,7 @@
   busy=true;let recorded=false;
   try{
    const type=action[0]==='FAST_TWO'?'TWO_M':action[0],before={pt:score(game,'pt'),opponent:score(game,'opponent')};
-   const event={id:uid(),playerId:active.player.id,playerName:active.player.name,team:active.team,type,label:action[1],x:point.x,y:point.y,fastBreak:action[0]==='FAST_TWO',inPaint:type==='TWO_M'&&['rim','floaters'].includes(shotZone),recordedAt:new Date().toISOString(),source:eventSource,shotContext:situation?'game-situation':'game',scoreBefore:before};
+   const event={id:uid(),playerId:active.player.id,playerName:active.player.name,team:active.team,type,label:action[1],x:point.x,y:point.y,fastBreak:action[0]==='FAST_TWO',inPaint:type==='TWO_M'&&['rim','floaters'].includes(shotZone),recordedAt:new Date().toISOString(),source:eventSource,shotContext:situation||isScrimmageGame(game)?'game-situation':'game',scoreBefore:before};
    const events=Array.isArray(game.events)?game.events:[];game.events=events;events.push(event);game.played=true;game.final=false;
    if(situation)state.gameSituationShots.push({id:event.id,playerId:event.playerId,date:game.date,type:event.type,x:event.x,y:event.y,recordedAt:event.recordedAt,undone:false});
    game.teamScore=before.pt+(active.team==='pt'?points(event):0);game.opponentScore=before.opponent+(active.team==='opponent'?points(event):0);game.oppScore=game.opponentScore;
@@ -185,4 +179,8 @@
   tabletTeam='opponent';saveGame(game);$('liveOpponentDialog').close();
  };
  window.renderLiveGame=render;if(!situation)window.seedSeasonSchedule?.();render();
+ if(!situation&&!window.PTCoachAccess?.isUnlocked()){
+  const code=window.prompt('Enter the coach access code to turn on automatic Supabase saves for this tab.');
+  if(code){window.PTCoachAccess.verify(code).then(valid=>{if(!valid){toast('Incorrect coach access code.');return}window.PTCoachAccess.unlock(code);window.dispatchEvent(new Event('pt-coach-unlocked'));saveGame()}).catch(()=>toast('Could not verify coach access.'))}
+ }
 })();

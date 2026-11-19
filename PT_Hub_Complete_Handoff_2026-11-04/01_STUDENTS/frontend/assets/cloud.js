@@ -90,7 +90,7 @@
    if(pending.length)flush();
    if(pendingDrillResults.length)flushDrillResults();
    const scheduleSignature=JSON.stringify({schedule:state.schedule,games:state.games});
-   if(scheduleLoaded&&scheduleSignature!==cloudScheduleSignature&&window.PTCoachAccess?.isUnlocked())syncSchedule(scheduleSignature);
+   if(scheduleLoaded&&scheduleSignature!==cloudScheduleSignature){if(window.PTCoachAccess?.isUnlocked())syncSchedule(scheduleSignature);else if(page==='live-game.html')label('Game changes are saved on this device only. Enter the coach code to sync them to Supabase.',true)}
    if(situationLoaded&&state.gameSituationShots.some(shot=>validSituationShot(shot)&&(!cloudSituationShots.has(shot.id)?!shot.undone:shot.undone&&!cloudSituationShots.get(shot.id))))syncGameSituationShots();
    if(legacySituationMode){const situations=state.gameSituations||[],signature=JSON.stringify(situations);if(signature!==cloudSituationSignature)syncLegacyGameSituations(situations,signature)}
    if(window.PTCoachAccess?.isUnlocked())for(const p of state.players){if(!knownPlayers.has(p.id)){knownPlayers.add(p.id);sendPlayer(p)}}
@@ -98,7 +98,8 @@
  let debounce=null;window.ptCloudQueueSave=()=>{clearTimeout(debounce);debounce=setTimeout(noticeChanges,80)};
  let pendingDrillResults=readJson(pendingResultsKey,[]).filter(x=>x&&typeof x==='object'&&uuid.test(x.id||''));
  const rememberDrillResults=()=>writeJson(pendingResultsKey,pendingDrillResults);
- const reject=(id,reason)=>{rejected.push({id,reason,at:new Date().toISOString()});rememberRejected()};
+ const reject=(id,reason)=>{rejected=rejected.filter(item=>item.id!==id);rejected.push({id,reason,at:new Date().toISOString()});rememberRejected()};
+ const clearRejection=id=>{const remaining=rejected.filter(item=>item.id!==id);if(remaining.length!==rejected.length){rejected=remaining;rememberRejected()}};
  // A batch reply names what was saved and what was refused. Anything the server did not mention stays queued and is sent again; uploads are idempotent by id.
  // Only the server's per-record verdicts count as rejections. A failure of the whole request (old function, origin, outage) keeps every record queued.
  // 'Unknown player or drill' usually means this phone's roster is older than the coach's last edit, so those records wait for the next snapshot instead of being set aside. After many tries they are set aside for real.
@@ -113,6 +114,7 @@
    const results=batch.map(r=>({id:r.id,batch_id:r.batchId,player_id:r.playerId,result:r.result,practice_date:r.date,recorded_at:r.recordedAt}));
    const {saved,refused,waiting,done}=settleBatch(await request('drill_results','POST',{results}),ids);
    for(const id of saved)cloudDrillResults.add(id);rememberCloudResults();
+   for(const id of saved)clearRejection(id);
    pendingDrillResults=pendingDrillResults.filter(r=>!done.has(r.id));rememberDrillResults();resultRetryDelay=RETRY_BASE_MS;
    batchLabel('drill results',refused,waiting);
    if(waiting.length)break;
@@ -161,7 +163,7 @@
  const legacySituationShot=(event,session)=>({id:event.id,playerId:event.playerId,date:session.date,type:event.type,x:event.x,y:event.y,recordedAt:event.recordedAt||session.createdAt||(session.date?session.date+'T12:00:00Z':''),undone:false});
  async function syncGameSituationShots(){
   if(situationSyncing)return;
-  situationSyncing=true;let failed=false;
+  situationSyncing=true;let failed=false,waitingForRoster=false,permanentRejection=false;
   try{
    for(const shot of state.gameSituationShots.slice()){
     if(!validSituationShot(shot))continue;
@@ -174,15 +176,19 @@
       // Older deployed functions know REB but not DRB. Keep the local DRB event,
       // and store its identical event ID as legacy REB until the function is updated.
       if(shot.type==='DRB'){
-       try{await request('game_situation_shot','POST',{...payload,shot_type:'REB'});cloudSituationShots.set(shot.id,false);continue}
+       try{await request('game_situation_shot','POST',{...payload,shot_type:'REB'});cloudSituationShots.set(shot.id,false);clearRejection(shot.id);continue}
        catch(fallbackError){if(!isClientError(fallbackError))throw fallbackError;e=fallbackError}
       }
       // Keep new Draw Foul events queued if the database migration or function
       // has not reached the server yet. Never turn them into another stat.
       if(shot.type==='DRAW_FOUL')throw e;
+      if(/unknown player/i.test(e.message)){
+       waitingForRoster=true;cloudSituationShots.set(shot.id,true);label('Game Situation shot is waiting for the player to return to the shared roster. Saved on this device.',true);continue;
+      }
+      permanentRejection=true;
       reject(shot.id,e.message);cloudSituationShots.set(shot.id,true);label('A game situation shot was rejected by the shared database: '+e.message,true);continue;
      }
-     cloudSituationShots.set(shot.id,false);
+     cloudSituationShots.set(shot.id,false);clearRejection(shot.id);
     }
     if(shot.undone&&!cloudSituationShots.get(shot.id)){
      const code=credential();
@@ -192,7 +198,7 @@
      cloudSituationShots.set(shot.id,true);
     }
    }
-   if(!lastError)label('Game situation shots saved to Supabase');
+   if(!waitingForRoster&&!permanentRejection)label('Game situation shots saved to Supabase');
   }catch(e){failed=true;label('Game situation shots saved on this device. Cloud retry pending: '+e.message,true)}
   finally{situationSyncing=false;setTimeout(noticeChanges,failed?RETRY_MAX_MS:0)}
  }
@@ -207,6 +213,16 @@
   const currentScope=playerPage&&!uuid.test(selectedId)?'entry':scope();
   try{const data=await request('snapshot','GET',null,'','&scope='+currentScope+(currentScope==='player'?'&player_id='+encodeURIComponent(selectedId):''));let addedPlayers=0,addedShots=0,addedResults=0,changedShots=0;
    roster=new Map(data.players.map(p=>[p.id,p]));drills=new Map(data.drills.map(d=>[d.name.toLowerCase(),d.id]));
+   // Recover drill results parked after an "Unknown player" rejection once
+   // their same player ID returns in the active Supabase roster.
+   const activePlayerIds=new Set(roster.keys()),recoveredResults=new Set((state.drillResults||[]).filter(result=>activePlayerIds.has(result.playerId)&&rejected.some(item=>item.id===result.id&&/unknown player/i.test(item.reason||''))).map(result=>result.id));
+   if(recoveredResults.size){
+    rejected=rejected.filter(item=>!recoveredResults.has(item.id));rememberRejected();
+    const queuedIds=new Set(pendingDrillResults.map(result=>result.id));
+    for(const result of state.drillResults||[])if(recoveredResults.has(result.id)&&!queuedIds.has(result.id))pendingDrillResults.push(result);
+    for(const id of recoveredResults)transientRejections.delete(id);
+    rememberDrillResults();
+   }
    if(playerPage&&currentScope==='player'&&Array.isArray(data.playerGames)&&document.getElementById('profilePlayer')?.value===selectedId){
     window.ptPlayerGameSnapshot={playerId:selectedId,games:data.playerGames};
     renderProfile();

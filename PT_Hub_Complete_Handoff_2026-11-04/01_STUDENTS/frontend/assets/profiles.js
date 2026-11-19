@@ -67,6 +67,8 @@ function profileZone(shot){
 }
 function profileIsTeam(){return document.body.dataset.profileScope==='team'}
 function isTestPlayerId(id){return state.players.some(player=>player.id===id&&String(player.name||'').trim().toLowerCase()==='test player')}
+function profileIsSituationGame(game){return !!(window.PTIsGameSituationMatchup?.(game)||game?.statsCategory==='game-situation'||game?.scheduleId==='a6d4920b-6180-4c40-8b0c-8c02d2b10002'||game?.id==='a6d4920b-6180-4c40-8b0c-8c02d2b10002'||(!game?.scheduleId&&String(game?.opponent||'').trim().toLowerCase()==='scrimmage'))}
+function profileGames(playerId){const snapshot=window.ptPlayerGameSnapshot;return !profileIsTeam()&&playerId&&snapshot?.playerId===playerId?snapshot.games:state.games}
 function profileCategory(shot){const mapped=profileZones.find(z=>z.id===shot.zone&&(/(Left|Right)$/.test(z.name)||z.id==='midKey'));const name=mapped?.name||shot.category||(shot.type==='Custom Drill'&&shot.drill?'Custom: '+shot.drill:shot.type)||profileZones.find(z=>z.id===shot.zone)?.name||'Located shots';return name==='Midrange'?'Midrange (Unspecified)':name}
 function legacySidedTotals(){
  const totals=new Map(),groups=new Map();
@@ -123,6 +125,7 @@ function legacyMidrangeTotals(){
 function profileRecords({allDates=profileAllDates,source=profileSource,player=profileIsTeam()?null:($('profilePlayer')?.value??null)}={}){
  const records=[];
  const dateMatches=date=>allDates||dateInRange(date,'court');
+ const games=profileGames(player);
  const add=(shot,kind,date)=>{
   if((player!==null&&shot.playerId!==player)||(player===null&&profileIsTeam()&&isTestPlayerId(shot.playerId))||!dateMatches(date))return;
   const attempts=kind==='set'?Number(shot.attempts):1;
@@ -147,8 +150,16 @@ function profileRecords({allDates=profileAllDates,source=profileSource,player=pr
    add({...event,type:category,category,made:event.type.endsWith('_M'),shotContext:'game-situation'},'game-situation',session.date);
   }
  }
- if(source==='game')for(const game of state.games){
-  if(game.testOnly===true)continue;
+ if(source==='game-situation')for(const game of games){
+  if(game.testOnly===true||!profileIsSituationGame(game))continue;
+  for(const event of game.events||[]){
+   if(event.team==='opponent'||event.undone||!/^(TWO|THREE|FT)_[MX]$/.test(event.type||'')||normalizedSituationIds.has(event.id)||event.shotId&&linked.has(event.shotId))continue;
+   const zone=profileZone(event),category=profileZones.find(z=>z.id===zone)?.name||(event.type.startsWith('THREE')?'Game Situation 3PT':event.type.startsWith('FT')?'Free Throws':'Game Situation 2PT');
+   add({...event,type:category,category,made:event.type.endsWith('_M'),shotContext:'game-situation'},'game-situation',game.date);
+  }
+ }
+ if(source==='game')for(const game of games){
+  if(game.testOnly===true||profileIsSituationGame(game))continue;
   const boxScores=Array.isArray(game.playerStats)?game.playerStats:[],covered=new Set(),didNotPlay=new Set();
   const pairs=[['twoMade','twoAttempts','TWO','Game 2PT'],['threeMade','threeAttempts','THREE','Game 3PT'],['ftMade','ftAttempts','FT','Free Throws']];
   for(const row of boxScores){
@@ -225,8 +236,9 @@ function renderProfileHeatStandards(){
 function profileGameStats(games,playerId=null,allDates=profileAllDates){
  const api=window.PTGameStatTotals;
  const totals=new Map(api.stats.map(stat=>[stat.key,null]));
- const eligible=games.filter(game=>game.testOnly!==true&&(game.played||game.final||game.events?.length||game.playerStats?.length)&&(allDates||dateInRange(game.date,'court')));
- const boards=api.totalsFor(eligible,isTestPlayerId);
+ const eligible=games.filter(game=>game.testOnly!==true&&!profileIsSituationGame(game)&&(game.played||game.final||game.events?.length||game.playerStats?.length)&&(allDates||dateInRange(game.date,'court')));
+ const excluded=playerId===null?isTestPlayerId:()=>false;
+ const boards=api.totalsFor(eligible,excluded);
  for(const stat of api.stats){
   const rows=playerId?[boards.get(stat.key).get(playerId)].filter(Boolean):[...boards.get(stat.key).values()];
   if(rows.length)totals.set(stat.key,rows.reduce((sum,row)=>sum+row.value,0));
@@ -234,7 +246,9 @@ function profileGameStats(games,playerId=null,allDates=profileAllDates){
  return {totals,hasGames:totals.get('gp')!==null};
 }
 function profileSituationStats(playerId,allDates=profileAllDates){
- const {totals}=window.PTGameSituationLeaderboardData(state,date=>allDates||dateInRange(date,'court'),isTestPlayerId);
+ const excluded=playerId===null?isTestPlayerId:()=>false;
+ const situationState={...state,games:profileGames(playerId)};
+ const {totals}=window.PTGameSituationLeaderboardData(situationState,date=>allDates||dateInRange(date,'court'),excluded);
  return {values:totals.get(playerId)||{drb:0,orb:0,to:0},hasRecords:totals.has(playerId)};
 }
 function renderProfileGameStats(playerId){
@@ -255,8 +269,7 @@ function renderProfileGameStats(playerId){
    return;
   }
  }
- const snapshot=window.ptPlayerGameSnapshot;
- const games=!profileIsTeam()&&!playerId?[]:!profileIsTeam()&&snapshot?.playerId===playerId?snapshot.games:state.games;
+ const games=!profileIsTeam()&&!playerId?[]:profileGames(playerId);
  const {totals,hasGames}=profileGameStats(games,playerId);
  const stats=window.PTGameStatTotals.stats;
  const minutes=totals.get('min');

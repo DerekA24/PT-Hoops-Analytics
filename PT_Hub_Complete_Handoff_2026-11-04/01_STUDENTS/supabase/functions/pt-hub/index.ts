@@ -208,7 +208,7 @@ Deno.serve(async req=>{
     const events=Array.isArray(game.events)?game.events.filter((event:Record<string,unknown>)=>event?.playerId===playerId&&event.team!=="opponent"):[];
     const starters=Array.isArray(game.starters)?game.starters.filter((id:unknown)=>id===playerId):[];
     if(!rows.length&&!events.length&&!starters.length)continue;
-    games.set(id,{id,date:game.date,played:game.played,final:game.final,statsImport:game.statsImport,playerStats:rows,events,starters});
+    games.set(id,{id,scheduleId:game.scheduleId,opponent:game.opponent,date:game.date,played:game.played,final:game.final,statsCategory:game.statsCategory,statsImport:game.statsImport,playerStats:rows,events,starters});
    }
   }
   return [...games.values()];
