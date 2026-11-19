@@ -278,6 +278,100 @@ Deno.serve(async req=>{
   if(shots.length){const {error:shotError}=await db.from("pt_game_situation_shots").upsert(shots,{onConflict:"id",ignoreDuplicates:true});if(shotError)return fail("Legacy shots could not be copied",500)}
   return ok({ok:true,id});
  }
+ // Public Live Game writes are limited to one scheduled game's courtside state.
+ // Schedule edits, imported box scores, and roster changes still require coach access.
+ if(req.method==="POST"&&action==="live_game_sync"){
+  const incoming=asRecord(body.game),scheduleId=str(incoming.scheduleId),gameId=str(incoming.id);
+  if(!uuid.test(scheduleId)||!uuid.test(gameId)||!Array.isArray(incoming.events)||incoming.events.length>2000)return fail("Invalid Live Game record");
+  const {data:stored,error:readError}=await db.from("pt_schedule_records").select("payload").eq("id",SCHEDULE_RECORD_ID).maybeSingle();
+  if(readError)return fail("Live Game could not be loaded",500);
+  if(!stored?.payload||typeof stored.payload!=="object")return fail("Shared schedule is not configured",503);
+  const payload=asRecord(stored.payload),schedule=Array.isArray(payload.schedule)?payload.schedule.map(asRecord):[],games=Array.isArray(payload.games)?payload.games.map(asRecord):[];
+  const scheduled=schedule.find(item=>item.id===scheduleId);
+  if(!scheduled)return fail("Game is not on the shared schedule",404);
+  const existing=games.find(item=>item.scheduleId===scheduleId);
+  if(existing&&existing.id!==gameId)return fail("Game record does not match the scheduled game",409);
+  const opponentPlayersRaw=Array.isArray(incoming.opponentPlayers)?incoming.opponentPlayers:existing&&Array.isArray(existing.opponentPlayers)?existing.opponentPlayers:[];
+  if(opponentPlayersRaw.length>50)return fail("Opponent roster is too large");
+  const opponentPlayers:Record<string,unknown>[]=[];
+  for(const value of opponentPlayersRaw){
+   const player=asRecord(value),playerId=str(player.id),name=cleanText(player.name,100),number=player.number===undefined||player.number===""?"":String(player.number);
+   if(!/^opponent-[0-9a-f-]{36}$/i.test(playerId)||name.length<1||number!==""&&!/^\d{1,2}$/.test(number))return fail("Invalid opponent roster entry");
+   opponentPlayers.push({id:playerId,name,number});
+  }
+  const opponentIds=new Set(opponentPlayers.map(player=>str(player.id))),eventTypes=new Set([...SHOT_TYPES,"DRAW_FOUL","OREB","DREB","AST","TO","STL","BLK","FOUL"]),cleanEvents:Record<string,unknown>[]=[],parkPlayerIds=new Set<string>();
+  const allowedReset=(event:Record<string,unknown>)=>event.type==="RESET_SCORE"||event.type==="RESET_ROSTER";
+  for(const value of incoming.events){
+   const event=asRecord(value),eventId=str(event.id),type=str(event.type),recordedAt=str(event.recordedAt);
+   if(!uuid.test(eventId)||!isoStamp(recordedAt))return fail("Invalid Live Game event");
+   if(allowedReset(event)){
+    if(event.source!=="live-game")return fail("Invalid Live Game reset event");
+    const reset:Record<string,unknown>={id:eventId,type,source:"live-game",label:cleanText(event.label,80),recordedAt:stamp(recordedAt)};
+    if(type==="RESET_SCORE"){
+     const before=asRecord(event.scoreBefore);
+     if(!Number.isInteger(before.pt)||!Number.isInteger(before.opponent)||Number(before.pt)<0||Number(before.opponent)<0||Number(before.pt)>999||Number(before.opponent)>999)return fail("Invalid score reset");
+     reset.scoreBefore={pt:Number(before.pt),opponent:Number(before.opponent)};
+    }else{
+     const previous=asRecord(event.lineupsBefore),validIds=(value:unknown)=>Array.isArray(value)&&value.length===5&&value.every(id=>id===""||typeof id==="string"&&(/^opponent-[0-9a-f-]{36}$/i.test(id)||uuid.test(id)));
+     if(!validIds(previous.pt)||!validIds(previous.opponent))return fail("Invalid roster reset");
+     reset.lineupsBefore={pt:previous.pt,opponent:previous.opponent};
+     if(event.activeBefore&&typeof event.activeBefore==="object")reset.activeBefore=asRecord(event.activeBefore);
+    }
+    cleanEvents.push(reset);continue;
+   }
+   const team=str(event.team),playerId=str(event.playerId);
+   if(!eventTypes.has(type)||!uuid.test(playerId)||!['pt','opponent'].includes(team)||!courtPoint(event.x,event.y))return fail("Invalid Live Game event");
+   if(team==="pt")parkPlayerIds.add(playerId);else if(!opponentIds.has(playerId))return fail("Unknown opponent player");
+   const cleanEvent:Record<string,unknown>={id:eventId,playerId,team,type,label:cleanText(event.label,80),x:event.x,y:event.y,recordedAt:stamp(recordedAt),source:"live-game"};
+   if(typeof event.playerName==="string")cleanEvent.playerName=cleanText(event.playerName,100);
+   if(typeof event.fastBreak==="boolean")cleanEvent.fastBreak=event.fastBreak;
+   if(typeof event.inPaint==="boolean")cleanEvent.inPaint=event.inPaint;
+   if(event.shotContext==="game-situation"||event.shotContext==="game")cleanEvent.shotContext=event.shotContext;
+   if(event.scoreBefore&&typeof event.scoreBefore==="object")cleanEvent.scoreBefore=asRecord(event.scoreBefore);
+   cleanEvents.push(cleanEvent);
+  }
+  const lineupSource=asRecord(incoming.liveLineups===undefined?existing?.liveLineups:incoming.liveLineups);
+  for(const playerId of Array.isArray(lineupSource.pt)?lineupSource.pt:[])if(typeof playerId==="string"&&playerId)parkPlayerIds.add(playerId);
+  const activeSource=asRecord(incoming.liveActive===undefined?existing?.liveActive:incoming.liveActive);
+  if(activeSource.team==="pt"&&typeof activeSource.playerId==="string")parkPlayerIds.add(activeSource.playerId);
+  const knownPlayers=await activePlayers([...parkPlayerIds]);
+  if(knownPlayers.size!==parkPlayerIds.size)return fail("Unknown player",403);
+  const rosterIds=new Set([...knownPlayers,...opponentIds]);
+  const cleanLineups=(value:unknown)=>{
+   const source=asRecord(value),lineup=(key:string)=>Array.isArray(source[key])&&source[key].length===5&&source[key].every(id=>id===""||typeof id==="string"&&rosterIds.has(id))?source[key] as string[]:null;
+   const pt=lineup("pt"),opponent=lineup("opponent");return pt&&opponent?{pt,opponent}:null;
+  };
+  const lineups=incoming.liveLineups===undefined?(existing?.liveLineups===undefined?undefined:cleanLineups(existing.liveLineups)):cleanLineups(incoming.liveLineups);
+  if(incoming.liveLineups!==undefined&&!lineups)return fail("Invalid Live Game lineups");
+  let liveActive:Record<string,unknown>|null|undefined=existing?.liveActive as Record<string,unknown>|null|undefined;
+  if(incoming.liveActive===null)liveActive=null;
+  else if(incoming.liveActive!==undefined){
+   const active=asRecord(incoming.liveActive),team=str(active.team),slot=active.slot,playerId=str(active.playerId),selected=team==="pt"?(lineups as {pt:string[];opponent:string[]}|undefined)?.pt:(lineups as {pt:string[];opponent:string[]}|undefined)?.opponent;
+   if(!['pt','opponent'].includes(team)||!Number.isInteger(slot)||Number(slot)<0||Number(slot)>4||!rosterIds.has(playerId)||selected?.[Number(slot)]!==playerId)return fail("Invalid active player");
+   liveActive={team,slot:Number(slot),playerId};
+  }
+  const scoreValue=(key:string,fallback:unknown)=>{const value=incoming[key]===undefined?fallback:incoming[key];return Number.isInteger(value)&&Number(value)>=0&&Number(value)<=999?Number(value):null};
+  const ptScore=scoreValue("teamScore",existing?.teamScore),opponentScore=scoreValue("opponentScore",incoming.oppScore===undefined?existing?.opponentScore??existing?.oppScore:incoming.oppScore);
+  if(incoming.teamScore!==undefined&&ptScore===null||incoming.opponentScore!==undefined&&opponentScore===null||incoming.oppScore!==undefined&&opponentScore===null)return fail("Invalid Live Game score");
+  const updatedAt=isoStamp(incoming.updatedAt)?stamp(str(incoming.updatedAt)):new Date().toISOString();
+  if(existing&&(Date.parse(updatedAt)||0)<(Date.parse(str(existing.updatedAt))||0))return ok({ok:true,stale:true});
+  const cleanGame:Record<string,unknown>={...existing,id:gameId,scheduleId,date:scheduled.date,opponent:scheduled.opponent,time:scheduled.time||"",location:scheduled.location||"Home",hudlUrl:scheduled.hudlUrl||"",events:cleanEvents,opponentPlayers,updatedAt};
+  if(typeof incoming.played==="boolean")cleanGame.played=incoming.played;
+  if(typeof incoming.final==="boolean")cleanGame.final=incoming.final;
+  if(ptScore!==null)cleanGame.teamScore=ptScore;
+  if(opponentScore!==null){cleanGame.opponentScore=opponentScore;cleanGame.oppScore=opponentScore}
+  if(lineups)cleanGame.liveLineups=lineups;
+  if(liveActive!==undefined)cleanGame.liveActive=liveActive;
+  if(incoming.liveCourtPoint!==undefined){const point=asRecord(incoming.liveCourtPoint);if(!courtPoint(point.x,point.y))return fail("Invalid court location");cleanGame.liveCourtPoint={x:point.x,y:point.y}}
+  if(scheduled.statsCategory==="game-situation")cleanGame.statsCategory="game-situation";
+  if(scheduled.testOnly===true||existing?.testOnly===true)cleanGame.testOnly=true;
+  const index=games.findIndex(item=>item.scheduleId===scheduleId);
+  if(index>=0)games[index]=cleanGame;else games.push(cleanGame);
+  const nextPayload={...payload,schedule,games};
+  if(JSON.stringify(nextPayload).length>MAX_PAYLOAD_CHARS*5)return fail("Schedule is too large",413);
+  const {error:writeError}=await db.from("pt_schedule_records").upsert({id:SCHEDULE_RECORD_ID,payload:stripNul(nextPayload),updated_at:new Date().toISOString()},{onConflict:"id"});
+  return writeError?fail("Live Game could not be saved",500):ok({ok:true,game:cleanGame});
+ }
  const denied=await verifyCoach(req,network,perDevice?device.toLowerCase():"");
  if(denied)return fail(denied.error,denied.status);
  if(req.method==="POST"&&action==="coach_code"){

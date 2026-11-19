@@ -51,7 +51,7 @@
   report=PTGameReport.build(snapshot.game,snapshot.players);
   const homeName=report.homeName;
   document.title=`${homeName} vs ${report.opponentName} - ${report.date||'Game Report'}`;
-  const labels=[['FG','fg'],['3PT','three'],['FT','ft'],['Rebounds','reb'],['Off. Rebounds','orb'],['Def. Rebounds','drb'],['Assists','ast'],['Turnovers','to'],['Steals','stl'],['Blocks','blk'],['Fouls','fouls'],['Points in Paint','pitp'],['Second-Chance Points','second'],['Fast-Break Points','fbp']];
+  const labels=[['FG','fg'],['3PT','three'],['FT','ft'],['Rebounds','reb'],['Off. Rebounds','orb'],['Def. Rebounds','drb'],['Assists','ast'],['Turnovers','to'],['Steals','stl'],['Blocks','blk'],['Fouls','fouls'],['Fouls Drawn','foulsDrawn'],['Points in Paint','pitp'],['Second-Chance Points','second'],['Fast-Break Points','fbp']];
   const teamRows=labels.map(([label,key])=>`<tr><td>${label}</td><td>${['fg','three','ft'].includes(key)?ratio(report.pt.totals[key]):value(report.pt.totals[key])}</td><td>${['fg','three','ft'].includes(key)?ratio(report.opponent.totals[key]):value(report.opponent.totals[key])}</td></tr>`).join('');
   const banner=`<div class="report-score"><h1>${escape(homeName)}</h1><strong>${value(report.ptScore)} - ${value(report.opponentScore)}</strong><h2>${escape(report.opponentName)}</h2></div>`;
   const footer=page=>`<footer class="report-page-footer"><span>Park Tudor Basketball | ${escape(report.date||'Date not set')}</span><span>${page} / 2</span></footer>`;

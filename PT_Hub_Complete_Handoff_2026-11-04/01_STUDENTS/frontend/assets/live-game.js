@@ -29,7 +29,7 @@
  const selectedEntry=()=>entries().find(e=>e.key===selection);
  // The cloud snapshot may contain an older copy of a game. Stamp local edits so
  // the merge can preserve an undo (including an empty event list) over that copy.
- function saveGame(game=selectedEntry()?.game){if(game)game.updatedAt=new Date().toISOString();save()}
+ function saveGame(game=selectedEntry()?.game){if(game)game.updatedAt=new Date().toISOString();save();if(game&&!situation)window.ptCloudQueueLiveGameSave?.(game)}
  function ensureGame(){
   const entry=selectedEntry();if(!entry)return null;
   if(entry.game){if(isScrimmageGame(entry.schedule||entry.game))entry.game.statsCategory='game-situation';return entry.game}
@@ -179,8 +179,4 @@
   tabletTeam='opponent';saveGame(game);$('liveOpponentDialog').close();
  };
  window.renderLiveGame=render;if(!situation)window.seedSeasonSchedule?.();render();
- if(!situation&&!window.PTCoachAccess?.isUnlocked()){
-  const code=window.prompt('Enter the coach access code to turn on automatic Supabase saves for this tab.');
-  if(code){window.PTCoachAccess.verify(code).then(valid=>{if(!valid){toast('Incorrect coach access code.');return}window.PTCoachAccess.unlock(code);window.dispatchEvent(new Event('pt-coach-unlocked'));saveGame()}).catch(()=>toast('Could not verify coach access.'))}
- }
 })();

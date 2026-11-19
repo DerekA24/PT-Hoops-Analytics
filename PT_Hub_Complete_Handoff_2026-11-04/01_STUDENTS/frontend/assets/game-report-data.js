@@ -3,8 +3,8 @@
  'use strict';
  const fieldShots=new Set(['TWO_M','TWO_X','THREE_M','THREE_X']);
  const scoring={TWO_M:2,THREE_M:3,FT_M:1};
- const eventFields={orb:['OREB','ORB'],drb:['DREB','DRB'],ast:['AST'],to:['TO'],stl:['STL'],blk:['BLK'],fouls:['FOUL','PF']};
- const aliases={pts:['pts','points'],orb:['orb','oreb'],drb:['drb','dreb'],ast:['ast','assists'],to:['to','turnovers'],stl:['stl','steals'],blk:['blk','blocks'],fouls:['personalFouls','pf','fouls'],pitp:['pitp','pointsInThePaint'],fbp:['fbp','fastBreakPoints'],second:['secondChancePoints']};
+ const eventFields={orb:['OREB','ORB'],drb:['DREB','DRB'],ast:['AST'],to:['TO'],stl:['STL'],blk:['BLK'],fouls:['FOUL','PF'],foulsDrawn:['DRAW_FOUL']};
+ const aliases={pts:['pts','points'],orb:['orb','oreb'],drb:['drb','dreb'],ast:['ast','assists'],to:['to','turnovers'],stl:['stl','steals'],blk:['blk','blocks'],fouls:['personalFouls','pf','fouls'],foulsDrawn:['foulsDrawn','drawnFouls'],pitp:['pitp','pointsInThePaint'],fbp:['fbp','fastBreakPoints'],second:['secondChancePoints']};
  const number=value=>value!==null&&value!==undefined&&value!==''&&Number.isFinite(Number(value))&&Number(value)>=0?Number(value):null;
  const read=(row,keys)=>{for(const key of keys){const value=number(row?.[key]);if(value!==null)return value}return null};
  const sum=values=>values.some(v=>v!==null)?values.reduce((n,v)=>n+(v??0),0):null;
