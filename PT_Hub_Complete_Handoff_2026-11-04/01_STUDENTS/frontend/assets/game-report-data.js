@@ -29,10 +29,10 @@
  }
  const located=e=>e.x!==null&&e.y!==null&&e.x!==''&&e.y!==''&&Number.isFinite(Number(e.x))&&Number.isFinite(Number(e.y))&&e.x>=12&&e.x<=488&&e.y>=12&&e.y<=458;
  function zoneOf(e){
-  if(e.type.startsWith('THREE'))return e.x<174?'left3':e.x>326?'right3':'top3';
-  const dx=Math.abs(e.x-250);
-  if(dx<76&&e.y<146)return 'rim';
-  return dx<76&&e.y<=202?'paint':'mid';
+  if(e.type.startsWith('THREE'))return e.x<190?'left3':e.x>310?'right3':'top3';
+  const inBox=e.x>=193&&e.x<=307;
+  if(inBox&&e.y<113)return 'rim';
+  return inBox&&e.y<=202?'paint':'mid';
  }
  function teamData(game,roster,team){
   const events=(game.events||[]).filter(e=>(e.team==='opponent'?'opponent':'pt')===team);

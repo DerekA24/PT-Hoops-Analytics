@@ -2,7 +2,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.0";
 const url=Deno.env.get("SUPABASE_URL")!,secret=Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const db=createClient(url,secret,{auth:{persistSession:false}});
 const SHOT_TYPES=["TWO_M","TWO_X","THREE_M","THREE_X","FT_M","FT_X"];
-const SITUATION_EVENT_TYPES=[...SHOT_TYPES,"REB","DRB","ORB","TO"];
+const SITUATION_EVENT_TYPES=[...SHOT_TYPES,"REB","DRB","ORB","TO","DRAW_FOUL"];
 const SCHEDULE_RECORD_ID="00000000-0000-0000-0000-000000000001";
 const DAY_MS=864e5,DATE_WINDOW_MS=366*DAY_MS,FUTURE_SLACK_MS=DAY_MS;
 const PUBLIC_UNDO_WINDOW_MS=24*36e5,PUBLIC_SHOT_DELETE_WINDOW_MS=15*6e4;

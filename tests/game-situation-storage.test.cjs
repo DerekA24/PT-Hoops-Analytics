@@ -33,8 +33,8 @@ test('undo hides a migrated shot without deleting its historical session', () =>
   assert.equal(records(stateWith([{...shot, undone:true}])).length, 0);
 });
 
-test('defensive and offensive rebounds and turnovers stay out of shooting totals', () => {
-  for(const type of ['REB','DRB','ORB','TO']){
+test('non-shooting game situation actions stay out of shooting totals', () => {
+  for(const type of ['REB','DRB','ORB','TO','DRAW_FOUL']){
     const state={shooting:[],court:[],gameSituations:[],gameSituationShots:[{...shot,type}]};
     assert.equal(records(state).length,0);
   }
@@ -78,6 +78,15 @@ test('cloud sync writes one shot and an undo without rewriting a session', async
   await new Promise(resolve => setTimeout(resolve, 160));
   assert.equal(calls.filter(call => call.method==='POST' && call.body?.shot_type==='DRB').length,1);
   assert.equal(calls.filter(call => call.method==='POST' && call.body?.shot_type==='REB').length,1);
+  const foul={...shot,id:'55555555-5555-4555-8555-555555555555',type:'DRAW_FOUL'};
+  state.gameSituationShots.push(foul);
+  context.window.ptCloudQueueSave();
+  await new Promise(resolve => setTimeout(resolve, 160));
+  assert.equal(calls.filter(call => call.method==='POST' && call.body?.shot_type==='DRAW_FOUL').length,1);
+  foul.undone=true;
+  context.window.ptCloudQueueSave();
+  await new Promise(resolve => setTimeout(resolve, 160));
+  assert.equal(calls.filter(call => call.method==='PATCH' && call.body?.id===foul.id).length,1);
 });
 
 test('an older backend keeps receiving session saves until migration is deployed', async () => {
