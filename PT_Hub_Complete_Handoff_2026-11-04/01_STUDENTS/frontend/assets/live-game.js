@@ -44,6 +44,25 @@
   const player=roster(game,active.team).find(p=>p.id===active.playerId);return player?{...active,player}:null;
  }
  const playerLabel=player=>`${player.number!==undefined&&player.number!==''?'#'+player.number+' ':''}${player.name}`;
+ function renderOpponentRoster(game=selectedEntry()?.game){
+  const node=$('liveOpponentRoster');if(!node)return;
+  const players=roster(game,'opponent');
+  node.innerHTML=players.length?players.map(player=>`<div class="live-opponent-roster-row"><span>${esc(playerLabel(player))}</span><button type="button" data-remove-opponent="${esc(player.id)}" aria-label="Remove ${esc(playerLabel(player))}">Remove</button></div>`).join(''):'<p class="muted">No opponent players added yet.</p>';
+ }
+ function removeOpponentPlayer(playerId){
+  const game=ensureGame();if(!game)return;
+  const player=roster(game,'opponent').find(item=>item.id===playerId);if(!player)return;
+  const removed=(game.events||[]).filter(event=>event.team==='opponent'&&event.playerId===playerId),removedPoints=removed.reduce((total,event)=>total+points(event),0);
+  if(removed.length&&!window.confirm(`Remove ${player.name} and delete ${removed.length} recorded ${removed.length===1?'event':'events'}? The opponent score will be reduced by ${removedPoints} point${removedPoints===1?'':'s'}.`))return;
+  game.events=(game.events||[]).filter(event=>!(event.team==='opponent'&&event.playerId===playerId));
+  game.opponentPlayers=roster(game,'opponent').filter(item=>item.id!==playerId);
+  if(Array.isArray(game.opponentPlayerStats))game.opponentPlayerStats=game.opponentPlayerStats.filter(row=>row.playerId!==playerId);
+  game.liveLineups={pt:slots(game,'pt'),opponent:slots(game,'opponent').map(id=>id===playerId?'':id)};
+  if(game.liveActive?.team==='opponent'&&game.liveActive.playerId===playerId)game.liveActive=null;
+  if(removedPoints){game.opponentScore=Math.max(0,score(game,'opponent')-removedPoints);game.oppScore=game.opponentScore}
+  if(tabletTeam==='opponent'&&game.liveActive===null)tabletTeam='pt';
+  saveGame(game);renderOpponentRoster(game);
+ }
  function score(game,team){
   const value=team==='pt'?game?.teamScore:game?.opponentScore??game?.oppScore;
   if(value!==undefined&&value!==null&&Number.isFinite(Number(value)))return Number(value);
@@ -169,7 +188,8 @@
   const reportWindow=window.open(url,'_blank');
   if(reportWindow)reportWindow.opener=null;else location.assign(url);
  };
- $('liveAddOpponent').onclick=()=>{if(situation||!selectedEntry())return;$('liveOpponentForm').reset();$('liveOpponentError').textContent='';$('liveOpponentDialog').showModal()};
+ $('liveAddOpponent').onclick=()=>{if(situation||!selectedEntry())return;$('liveOpponentForm').reset();$('liveOpponentError').textContent='';renderOpponentRoster();$('liveOpponentDialog').showModal()};
+ if($('liveOpponentRoster'))$('liveOpponentRoster').onclick=e=>{const button=e.target.closest('[data-remove-opponent]');if(button)removeOpponentPlayer(button.dataset.removeOpponent)};
  $('liveCloseOpponent').onclick=()=>$('liveOpponentDialog').close();
  $('liveOpponentForm').onsubmit=e=>{
   e.preventDefault();if(situation)return;const game=ensureGame();if(!game)return;const name=$('liveOpponentPlayerName').value.trim(),number=$('liveOpponentPlayerNumber').value.trim();if(!name)return;
