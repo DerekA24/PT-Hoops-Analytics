@@ -548,6 +548,12 @@ body:not([data-page="live-game"]) .profile-data th,body:not([data-page="live-gam
  .live-phone-notice p{margin:10px 0 0;font-size:15px;line-height:1.5;color:#ffe3dd}
 }
 
+.live-opponent-roster{display:grid;gap:7px;max-height:220px;overflow:auto;margin:8px 0 16px}
+.live-opponent-roster-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:7px 10px;border:1px solid #454953;border-radius:8px;background:#20242b}
+.live-opponent-roster-row span{min-width:0;overflow-wrap:anywhere}
+.live-opponent-roster-row button{min-height:34px;padding:6px 10px;color:#ffd4d0;border-color:#a84b45}
+.live-opponent-roster-title{margin:14px 0 6px;font-size:15px}
+
 /* Navigation disclosure for phones only. */
 .phone-menu-toggle{display:none}
 @media (max-width:767px), (max-height:500px) and (pointer:coarse){

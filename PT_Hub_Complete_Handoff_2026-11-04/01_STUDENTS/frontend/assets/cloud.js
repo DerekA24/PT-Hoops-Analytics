@@ -339,7 +339,7 @@
   liveGameSyncTimer=null;
   liveGameSyncBusy=true;const game=queuedLiveGame;queuedLiveGame=null;
   try{await request('live_game_sync','POST',{game});liveGameRetryDelay=RETRY_BASE_MS;label('Live Game saved to Supabase')}
-  catch(e){if(!queuedLiveGame)queuedLiveGame=game;label('Live Game saved on this device. Supabase retry pending: '+e.message,true);clearTimeout(liveGameSyncTimer);liveGameSyncTimer=setTimeout(syncLiveGame,liveGameRetryDelay);liveGameRetryDelay=Math.min(RETRY_MAX_MS,liveGameRetryDelay*2)}
+  catch(e){if(!queuedLiveGame)queuedLiveGame=game;const message=/coach access required/i.test(e.message)?'The deployed Supabase function is outdated. Deploy the current pt-hub function; Live Game saves do not need coach access.':'Live Game saved on this device. Supabase retry pending: '+e.message;label(message,true);clearTimeout(liveGameSyncTimer);liveGameSyncTimer=setTimeout(syncLiveGame,liveGameRetryDelay);liveGameRetryDelay=Math.min(RETRY_MAX_MS,liveGameRetryDelay*2)}
   finally{liveGameSyncBusy=false;if(queuedLiveGame&&liveGameSyncTimer===null)liveGameSyncTimer=setTimeout(syncLiveGame,0)}
  }
  window.ptCloudQueueLiveGameSave=game=>{if(page!=='live-game.html'||!game?.scheduleId)return;try{queuedLiveGame=JSON.parse(JSON.stringify(game))}catch{return}clearTimeout(liveGameSyncTimer);liveGameSyncTimer=setTimeout(syncLiveGame,120)};
