@@ -680,6 +680,27 @@ body[data-entry-mode="game-situation"] #livePlayerSlots .live-slot-dropdown sele
 }
 
 .live-player-mobile{display:none}
+
+/* Live Game: show a ten-player bench per team and give the stat controls the full row. */
+@media (min-width:761px) and (hover:hover){
+ body[data-page="live-game"]:not([data-entry-mode="game-situation"]) .live-game-layout{grid-template-columns:minmax(0,1fr) minmax(0,1fr);align-items:stretch}
+ body[data-page="live-game"]:not([data-entry-mode="game-situation"]) .live-court-card,
+ body[data-page="live-game"]:not([data-entry-mode="game-situation"]) .live-control-box{display:contents}
+ body[data-page="live-game"]:not([data-entry-mode="game-situation"]) .live-court-surface{grid-column:1;grid-row:1;padding:12px;border:1px solid #344154;border-radius:15px;background:#1a2230}
+ body[data-page="live-game"]:not([data-entry-mode="game-situation"]) .live-players-panel{grid-column:2;grid-row:1;padding:12px;border:1px solid #344154;border-radius:15px;background:#1a2230}
+ body[data-page="live-game"]:not([data-entry-mode="game-situation"]) .live-stats-panel{grid-column:1/-1;grid-row:2;border:1px solid #484951;border-radius:12px}
+ body[data-page="live-game"]:not([data-entry-mode="game-situation"]) #liveScoreFooter{grid-column:1/-1;grid-row:3}
+ body[data-page="live-game"]:not([data-entry-mode="game-situation"]) #livePlayerSlots{grid-template-rows:repeat(10,34px);min-height:0}
+ body[data-page="live-game"]:not([data-entry-mode="game-situation"]) #liveStatButtons{grid-template-columns:repeat(auto-fit,minmax(125px,1fr));grid-template-rows:none;grid-auto-rows:minmax(48px,auto)}
+}
+@media (max-width:760px){
+ body[data-page="live-game"]:not([data-entry-mode="game-situation"]) #livePlayerSlots{grid-template-rows:repeat(10,40px)}
+ body[data-page="live-game"]:not([data-entry-mode="game-situation"]) #liveStatButtons{grid-template-columns:repeat(4,minmax(0,1fr));grid-template-rows:none;grid-auto-rows:minmax(44px,auto)}
+}
+@media (min-width:768px) and (min-height:600px) and (pointer:coarse){
+ body[data-page="live-game"]:not([data-entry-mode="game-situation"]) #livePlayerSlots{grid-template-columns:repeat(5,minmax(0,1fr));grid-template-rows:none;grid-auto-rows:minmax(94px,auto)}
+ body[data-page="live-game"]:not([data-entry-mode="game-situation"]) #liveStatButtons{grid-template-columns:repeat(8,minmax(0,1fr));grid-template-rows:none;grid-auto-rows:minmax(52px,auto)}
+}
 .live-player-empty-mobile{display:none}
 
 /* Phone Game Situation entry: compact court, two five-player rows, and nine quick actions. */

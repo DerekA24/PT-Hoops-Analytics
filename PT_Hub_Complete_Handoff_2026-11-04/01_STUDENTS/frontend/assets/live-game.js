@@ -37,9 +37,10 @@
   const item=entry.schedule,game={id:uid(),scheduleId:item.id,date:item.date,opponent:item.opponent,time:item.time||'',location:item.location||'Home',hudlUrl:item.hudlUrl||'',events:[],played:false,...(item.testOnly===true?{testOnly:true}:{}),...(isScrimmageGame(item)?{statsCategory:'game-situation'}:{})};state.games.push(game);return game;
  }
  function roster(game,team){return situation||team==='pt'?state.players:Array.isArray(game?.opponentPlayers)?game.opponentPlayers:[]}
- function slots(game,team){const values=game?.liveLineups?.[team]||[];return Array.from({length:5},(_,i)=>values[i]||'')}
+ const lineupSize=situation?5:10;
+ function slots(game,team){const values=game?.liveLineups?.[team]||[];return Array.from({length:lineupSize},(_,i)=>values[i]||'')}
  function activePlayer(game){
-  const active=game?.liveActive;if(!active||!['pt','opponent'].includes(active.team)||!Number.isInteger(active.slot)||active.slot<0||active.slot>4)return null;
+  const active=game?.liveActive;if(!active||!['pt','opponent'].includes(active.team)||!Number.isInteger(active.slot)||active.slot<0||active.slot>=lineupSize)return null;
   if(slots(game,active.team)[active.slot]!==active.playerId)return null;
   const player=roster(game,active.team).find(p=>p.id===active.playerId);return player?{...active,player}:null;
  }
@@ -88,7 +89,7 @@
    $('liveResetRoster').disabled=!game||!([...slots(game,'pt'),...slots(game,'opponent')].some(Boolean)||game.liveActive);
   }
   const saved=game?.liveCourtPoint;if(saved&&Number.isFinite(saved.x)&&Number.isFinite(saved.y))point={x:Math.max(12,Math.min(488,saved.x)),y:Math.max(12,Math.min(458,saved.y))};updateDot();
-  $('livePlayerSlots').innerHTML=Array.from({length:5},(_,slot)=>['pt','opponent'].map(team=>{
+  $('livePlayerSlots').innerHTML=Array.from({length:lineupSize},(_,slot)=>['pt','opponent'].map(team=>{
    const lineup=slots(game,team),id=lineup[slot],players=roster(game,team),player=players.find(p=>p.id===id),isActive=active?.team===team&&active.slot===slot;
    const emptyLabel=situation?'<span class="live-player-empty-standard">Select player</span><span class="live-player-empty-mobile">Select</span>':'Select player';
    return `<div class="live-slot-dropdown ${isActive?'selected':''}" data-live-slot="${team}:${slot}" data-live-team-slot="${team}"><button type="button" class="live-player-activate" data-live-activate="${team}:${slot}" aria-pressed="${!!isActive}" title="${player?esc(playerLabel(player)):'Use the arrow to choose a player'}" ${!entry||!player?'disabled':''}>${player?'<span class="live-player-number">'+(player.number!==undefined&&player.number!==''?'#'+esc(player.number):'')+'</span> <span class="live-player-name">'+esc(player.name)+'</span>':emptyLabel}${situation&&player?'<span class="live-player-mobile">'+esc(player.name.trim().split(/\s+/).at(-1))+'</span>':''}</button><span class="live-player-arrow" aria-hidden="true">&#9662;</span><select data-live-player="${team}:${slot}" aria-label="Change ${team==='pt'?homeName:esc(opponent)} player ${slot+1}" aria-describedby="liveSelectedPlayer" ${!entry?'disabled':''}><option value="">Select player</option>${players.map(p=>`<option value="${esc(p.id)}" ${p.id===id?'selected':''} ${lineup.some((value,i)=>i!==slot&&value===p.id)||situation&&slots(game,team==='pt'?'opponent':'pt').includes(p.id)?'disabled':''}>${esc(playerLabel(p))}</option>`).join('')}</select></div>`;
